@@ -5,6 +5,8 @@
 
 A web-based dashboard for backtesting trading strategies and evaluating their robustness using Monte Carlo simulations. Built with Vue 3 (TypeScript) for the frontend and Rust compiled to WebAssembly (Wasm) for high-performance calculations.
 
+![Image](https://github.com/user-attachments/assets/d7910081-0d4d-41c6-89aa-e91e5aae4fc8)
+
 ## Overview
 
 The primary goal of this project is to provide a tool for traders and quantitative analysts to:
@@ -100,29 +102,38 @@ mc-simulations/
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repository-url>
+    git clone https://github.com/engan/mc-simulations.git
     cd mc-simulations
     ```
 
-2.  **Build the Rust/Wasm package:**
-    *   Navigate to the Rust project root (where `Cargo.toml` is located - likely the project root `mc-simulations/`).
-    *   Run the build command. This compiles Rust to Wasm and generates JavaScript bindings, placing them typically in a `pkg/` directory (check your setup). The `--target web` flag is crucial for browser compatibility.
+2.  **Install all dependencies (Root + Frontend):**
+    *   Run from the root directory (mc-simulations/):
     ```bash
-    wasm-pack build --target web
+    pnpm install
     ```
-    *(Ensure the output path aligns with where the frontend expects to import it from, e.g., `frontend/src/rust/pkg/`)*
 
-3.  **Set up the Frontend:**
-    *   Navigate to the frontend directory:
+3.  **Build the Rust/Wasm package:**
+    *   Run from the root directory (mc-simulations/):
+    *   This compiles Rust to Wasm and places it in frontend/src/rust/pkg/.
+    *   (Optional: You can add "build:wasm": "wasm-pack build --target web --out-dir ./frontend/src/rust/pkg" to the root package.json scripts and run pnpm run build:wasm). 
+    ```bash
+    wasm-pack build --target web --out-dir ./frontend/src/rust/pkg
+    ```
+
+4.  **Run the Frontend Development Server:**
+    *   Option 1: Navigate to frontend and run:
         ```bash
         cd frontend
+        pnpm run dev
         ```
-    *   Install dependencies:
+    *   Option 2: Run from the root directory:
         ```bash
-        pnpm install
+        pnpm --filter frontend run dev
         ```
+    *   (Optional: You can add "dev": "pnpm --filter frontend run dev" to the root package.json scripts and just run pnpm run dev from the root)
+    *   Open your browser and navigate to the local URL provided by Vite (usually http://localhost:5173 or similar).   
 
-4.  **Run the Development Server:**
+5.  **Run the Development Server:**
     *   From the `frontend` directory:
         ```bash
         pnpm run dev

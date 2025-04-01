@@ -60,7 +60,6 @@ function handleProgressUpdate(message: string) {
     currentStatusMessage.value = message;
     // Nullstill resultater når ny prosess starter
     if (message.startsWith("Starter")) {
-        // optimizationTopResults.value = null; // Behold gjerne Steg 1 resultatene synlig?
         selectedParamsForMc.value = null;
         mcValidationResults.value = null;
     }
@@ -78,9 +77,7 @@ function handleOptimizationComplete(resultsList: BestParams[] | null) {
 
 // Mottar det ENE valgte parametersettet fra SimulationResults
 function handleParamsSelectedForMc(params: BestParams) {
-    // console.log("VIEW: handleParamsSelectedForMc called with:", params); // <-- Ny logg
     selectedParamsForMc.value = params;
-    // console.log("VIEW: selectedParamsForMc.value is now:", JSON.stringify(selectedParamsForMc.value)); // <-- Ny logg
     currentStatusMessage.value = `Params ${params.short}/${params.long} selected for MC Validation.`;
     mcValidationResults.value = null; // Nullstill evt. gamle MC-resultater
 }

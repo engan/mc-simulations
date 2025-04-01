@@ -74,25 +74,6 @@ function generateSimulatedPricePath(
   return simulatedPath
 }
 
-// --- Hjelpefunksjon for Max Drawdown (enkel versjon) ---
-// NB: Wasm-backtesteren bør ideelt sett beregne dette for nøyaktighet
-/*
-function calculateMaxDrawdownSimple(equityCurve: number[]): number {
-  let maxEquity = -Infinity
-  let maxDrawdown = 0
-  for (const equity of equityCurve) {
-    if (equity > maxEquity) {
-      maxEquity = equity
-    }
-    const drawdown = (maxEquity - equity) / maxEquity
-    if (drawdown > maxDrawdown) {
-      maxDrawdown = drawdown
-    }
-  }
-  return maxDrawdown * 100 // Returnerer som prosent
-}
-*/
-
 // --- Wasm Init Flagg ---
 let wasmInitializedMc = false
 const ERROR_PF_VALUE = -1.0 // Må matche Rust

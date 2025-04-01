@@ -1,4 +1,3 @@
-<!-- Fil: frontend/src/components/SimulationResults.vue -->
 <script setup lang="ts">
 import { ref, watch, computed, type Ref } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';

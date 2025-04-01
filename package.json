@@ -2,5 +2,9 @@
 	"devDependencies": {
 		"vue3-apexcharts": "^1.8.0",
 		"apexcharts": "^4.5.0"
-	}
+	},
+	"scripts": {
+		"build:wasm": "wasm-pack build --target web --out-dir ./frontend/src/rust/pkg", 
+		"dev": "pnpm --filter frontend run dev"
+	  }
 }

@@ -1,6 +1,3 @@
-// Filnavn: frontend/src/services/binanceAPI.ts
-// Plassering: frontend/src/services/
-
 // Definerer strukturen for et behandlet candlestick-objekt
 export interface Kline {
     timestamp: number; // Starttidspunkt for intervallet (millisekunder)

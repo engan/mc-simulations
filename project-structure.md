@@ -1,6 +1,7 @@
+.
 ├── Cargo.lock
 ├── Cargo.toml
-├── README.md 
+├── README.md
 ├── frontend
 │   ├── README.md
 │   ├── env.d.ts
@@ -35,18 +36,26 @@
 │   │   ├── App.vue
 │   │   ├── assets
 │   │   ├── components
+│   │   ├── composables
 │   │   ├── main.ts
 │   │   ├── router
 │   │   ├── rust
+│   │   ├── services
 │   │   ├── stores
-│   │   └── views
+│   │   ├── views
+│   │   └── workers
 │   ├── tsconfig.app.json
 │   ├── tsconfig.json
 │   ├── tsconfig.node.json
 │   ├── tsconfig.vitest.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
+├── node_modules
+│   ├── apexcharts -> .pnpm/apexcharts@4.5.0/node_modules/apexcharts
+│   └── vue3-apexcharts -> .pnpm/vue3-apexcharts@1.8.0_apexcharts@4.5.0_vue@3.5.13/node_modules/vue3-apexcharts
 ├── notes.txt
+├── package.json
+├── pnpm-lock.yaml
 ├── project-structure.md
 ├── src
 │   └── lib.rs

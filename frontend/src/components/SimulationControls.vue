@@ -103,7 +103,6 @@ function startOptimization() {
                 // Mottar nå payload.topResults (en liste)
                 console.log('Controls: Received result list from worker:', payload.topResults);
                 const resultsList = payload.topResults && payload.topResults.length > 0 ? payload.topResults : null;
-                // Kall den korrigerte lokale handleren med LISTEN
                 handleOptimizationCompleteLocal(resultsList);
             } else if (type === 'error') {
                 emit('update-progress', `Opt Worker Error: ${payload.message}`);
@@ -139,7 +138,6 @@ function startOptimization() {
     });
 }
 
-// --- LEGG TIL DENNE FUNKSJONEN IGJEN ---
 // Denne kalles av knappen og sender kun en hendelse oppover
 function triggerMcValidationStart() {
   if (!bestParamsAvailable.value) {
@@ -162,7 +160,6 @@ function triggerMcValidationStart() {
 
   console.log("CONTROLS: Emitting 'start-mc-validation' with payload:", payload);
 
-  // Send med den kombinerte payloaden
   emit('start-mc-validation', payload);
 }
 

@@ -1,20 +1,25 @@
 // Importer Wasm-funksjoner og init
-import init, { run_backtest_sma_cross_wasm } from '../rust/pkg/mc_simulations.js'
+import init, {
+  run_backtest_sma_cross_wasm,
+  run_backtest_rsi_wasm,
+} from '../rust/pkg/mc_simulations'
+
+// --- IMPORTER SENTRALE TYPER ---
+import type {
+  Kline, // Behøver Kline-typen
+  StartMcValidationPayload, // Den fulle payloaden vi mottar
+  SmaBestParams, // For å hente params
+  RsiBestParams, // For å hente params
+  McResultData, // Det vi skal sende tilbake (uten dataInfo)
+  McSummaryStats,
+} from '../types/simulation'
 
 // --- VIKTIG: Importer type for Wasm resultat ---
-import type { BacktestResultWasm } from '../rust/pkg/mc_simulations.js' // Importer type for Wasm resultat
+import type { BacktestResultWasm } from '../rust/pkg/mc_simulations' // Importer type for Wasm resultat
 
 console.log('MC Validation Worker (TypeScript) Loaded')
 
 // --- Type-definisjoner ---
-interface Kline {
-  timestamp: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
 interface BestParams {
   short: number
   long: number
@@ -28,23 +33,8 @@ interface McValidationPayload {
   numBarsPerSim: number
   strategy: string // For fremtidig bruk
 }
-interface McResultData {
-  allPnLs_pct: number[]
-  allMaxDrawdowns: number[] // MÅ LEGGES TIL I BacktestResultWasm!
-  summaryStats: Record<string, number> // F.eks. gjennomsnitt, median etc.
-}
-declare const self: DedicatedWorkerGlobalScope
 
-// --- MANUELT DEFINERT Interface for Wasm-resultat ---
-// !!! VIKTIG: Må oppdateres for å inkludere max_drawdown !!!
-interface BacktestResultWasmManual {
-  readonly profit_factor: number
-  readonly trades: number
-  readonly total_profit: number
-  readonly total_loss: number
-  readonly max_drawdown: number
-  free(): void
-}
+declare const self: DedicatedWorkerGlobalScope
 
 // --- Bootstrapping Funksjoner (fra tidligere svar) ---
 function calculatePercentageChanges(prices: number[]): number[] {
@@ -100,16 +90,23 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
       }
     }
 
-    const mcPayload = payload as McValidationPayload
-    const { historicalKlines, parameters, numIterations, numBarsPerSim, strategy } = mcPayload
+    // --- Type Payload ---
+    const mcPayload = payload as StartMcValidationPayload // Bruker riktig type
+    const {
+      mcSettings,
+      selectedStrategyParams,
+      strategy,
+      historicalKlines,
+      costs, // <-- NY: Hent ut kostnader
+    } = mcPayload
+    const { commissionPct, slippageAmount } = costs // Pakk ut kostnader
+    const { iterations: numIterations, barsPerSim: numBarsPerSim } = mcSettings
 
-    if (strategy !== 'smaCross') {
-      self.postMessage({
-        type: 'mcError',
-        payload: { message: 'Only smaCross strategy supported' },
-      })
-      return
-    }
+    console.log('MC Worker Received Strategy:', strategy)
+    console.log('MC Worker Received Params:', JSON.stringify(selectedStrategyParams))
+    console.log('MC Worker Historical Klines Length:', historicalKlines?.length)
+
+    // --- Data Validering for Bootstrapping ---
     if (!historicalKlines || historicalKlines.length < 2) {
       self.postMessage({
         type: 'mcError',
@@ -120,14 +117,14 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
 
     self.postMessage({
       type: 'mcProgress',
-      payload: { message: `Starting ${numIterations} MC iterations...` },
+      payload: { message: `Starting ${numIterations} MC iterations for ${strategy}...` },
     })
 
     const historicalClosePrices: number[] = historicalKlines.map((k) => k.close)
     const priceChanges = calculatePercentageChanges(historicalClosePrices)
-    const startPrice = historicalClosePrices[historicalClosePrices.length - 1]
+    const startPrice = historicalClosePrices[historicalClosePrices.length - 1] || 100 // Fallback startpris
 
-    const allPnLs_pct: number[] = [] // Endret navn for klarhet
+    const allPnLs_pct: number[] = []
     const allMaxDrawdowns: number[] = []
 
     for (let i = 0; i < numIterations; i++) {
@@ -136,32 +133,57 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
 
       let backtestResult: BacktestResultWasm | null = null
       try {
-        backtestResult = run_backtest_sma_cross_wasm(
-          simulatedPathTyped,
-          parameters.short,
-          parameters.long,
-        )
-
-        if (!backtestResult || backtestResult.profit_factor === ERROR_PF_VALUE) {
-          console.warn(`MC Iteration ${i + 1}: Backtest skipped or failed.`)
-          // Vurder om du skal lagre 0, na, eller hoppe over denne iterasjonen
-          allPnLs_pct.push(0) // Lagrer 0 P/L ved feil/skip
-          allMaxDrawdowns.push(100) // Lagrer 100% DD ved feil/skip (konservativt)
-          continue
+        // --- KALL RIKTIG WASM FUNKSJON BASERT PÅ STRATEGI ---
+        if (strategy === 'smaCross') {
+          const params = selectedStrategyParams as SmaBestParams
+          // --- LEGG TIL KOSTNADER I WASM-KALL ---
+          backtestResult = run_backtest_sma_cross_wasm(
+            simulatedPathTyped,
+            params.short,
+            params.long,
+            commissionPct, // <-- Ny
+            slippageAmount, // <-- Ny
+          )
+        } else if (strategy === 'rsi') {
+          // Hent RSI parametere (periode + faste nivåer for nå)
+          const params = selectedStrategyParams as RsiBestParams // Type assertion
+          const rsiPeriod = params.period
+          const buyLevel = 30.0 // Hent fra payload hvis de blir variable
+          const sellLevel = 70.0 // Hent fra payload hvis de blir variable
+          // --- LEGG TIL KOSTNADER I WASM-KALL ---
+          backtestResult = run_backtest_rsi_wasm(
+            simulatedPathTyped,
+            rsiPeriod,
+            buyLevel,
+            sellLevel,
+            commissionPct, // <-- Ny
+            slippageAmount, // <-- Ny
+          )
+        } else {
+          // Ukjent strategi - send feil og hopp over iterasjon
+          // console.error(`MC Iteration ${i + 1}: Unsupported strategy: ${strategy}`)
+          allPnLs_pct.push(0)
+          allMaxDrawdowns.push(100)
+          continue // Gå til neste iterasjon
         }
 
-        // --- BEREGN PROSENTVIS P/L ---
-        const netProfit = backtestResult.total_profit - backtestResult.total_loss
-        const iterationPL_pct = (netProfit / START_EQUITY) * 100.0 // Prosentvis P/L
-        allPnLs_pct.push(iterationPL_pct) // Legg til prosentvis P/L
+        // --- Behandle resultat (som før) ---
+        if (!backtestResult || backtestResult.profit_factor === ERROR_PF_VALUE) {
+          // console.warn(`MC Iteration ${i + 1}: Backtest skipped or failed for ${strategy}.`)
+          allPnLs_pct.push(0)
+          allMaxDrawdowns.push(100)
+          continue
+        }
+        // console.log(`MC Iter ${i+1} Result (raw):`, backtestResult);
 
-        // Hent Max Drawdown fra Wasm
+        const netProfit = backtestResult.total_profit - backtestResult.total_loss
+        const iterationPL_pct = (netProfit / START_EQUITY) * 100.0
+        allPnLs_pct.push(iterationPL_pct)
+
         const iterationMaxDD = backtestResult.max_drawdown
         allMaxDrawdowns.push(iterationMaxDD)
       } catch (wasmError) {
-        const errorMessage = wasmError instanceof Error ? wasmError.message : String(wasmError) // Hent meldingen
-        console.error(`MC Iteration ${i + 1}: Wasm backtest call failed:`, errorMessage)
-        // Lagre feilresultat
+        /* ... (feilhåndtering som før) */
         allPnLs_pct.push(0)
         allMaxDrawdowns.push(100)
       } finally {
@@ -169,41 +191,43 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
           backtestResult.free()
         }
       }
-
-      // Send progress
-      if ((i + 1) % Math.floor(numIterations / 10 || 1) === 0 || i === numIterations - 1) {
-        self.postMessage({
-          type: 'mcProgress',
-          payload: { message: `Completed ${i + 1} / ${numIterations} iterations.` },
-        })
-      }
     }
 
-    // --- Beregn Sammendragsstatistikk (enkelt eksempel) ---
-    const summaryStats: Record<string, number> = {}
-
-    // --- LEGG TIL ITERATIONS OG BARS ---
-    summaryStats.numIterations = numIterations // Lagre faktisk brukt antall
-    summaryStats.numBarsPerSim = numBarsPerSim // Lagre faktisk brukt antall
+    // --- Beregn Sammendragsstatistikk (som før, men bruk McSummaryStats type) ---
+    const summaryStats: McSummaryStats = {
+      // Bruk importert type
+      numIterations: numIterations,
+      numBarsPerSim: numBarsPerSim,
+      // Initialiser resten som undefined for å unngå feil hvis beregning feiler
+      averagePL_pct: undefined,
+      medianPL_pct: undefined,
+      pnl_05_percentile_pct: undefined,
+      pnl_10_percentile_pct: undefined,
+      averageMaxDD: undefined,
+      medianMaxDD: undefined,
+      maxDD_95_percentile: undefined,
+    }
 
     if (allPnLs_pct.length > 0) {
       const sortedPnLs = [...allPnLs_pct].sort((a, b) => a - b)
-      summaryStats.averagePL_pct = allPnLs_pct.reduce((a, b) => a + b, 0) / allPnLs_pct.length // Gjennomsnitt
-      summaryStats.medianPL_pct = sortedPnLs[Math.floor(allPnLs_pct.length / 2)] // Median
-      summaryStats.pnl_05_percentile_pct = sortedPnLs[Math.floor(allPnLs_pct.length * 0.05)] // VaR 95% (ca.)
-      summaryStats.pnl_10_percentile_pct = sortedPnLs[Math.floor(allPnLs_pct.length * 0.1)] // VaR 90% (ca.)
-      // ... beregn flere stats for P/L og MaxDrawdown ...
+      summaryStats.averagePL_pct = allPnLs_pct.reduce((a, b) => a + b, 0) / allPnLs_pct.length
+      summaryStats.medianPL_pct = sortedPnLs[Math.floor(allPnLs_pct.length / 2)]
+      summaryStats.pnl_05_percentile_pct = sortedPnLs[Math.floor(allPnLs_pct.length * 0.05)]
+      summaryStats.pnl_10_percentile_pct = sortedPnLs[Math.floor(allPnLs_pct.length * 0.1)]
     }
 
-    // Beregn stats for Max Drawdown også
     if (allMaxDrawdowns.length > 0) {
-      const sortedDDs = [...allMaxDrawdowns].filter((dd) => dd !== 100).sort((a, b) => a - b) // Filtrer bort feilverdier før sortering
-      if (sortedDDs.length > 0) {
-        summaryStats.averageMaxDD = sortedDDs.reduce((a, b) => a + b, 0) / sortedDDs.length
+      // Filtrer bort feilverdier (100%) før beregning/sortering av DD stats
+      const validDrawdowns = allMaxDrawdowns.filter((dd) => dd < 100)
+      if (validDrawdowns.length > 0) {
+        const sortedDDs = [...validDrawdowns].sort((a, b) => a - b)
+        summaryStats.averageMaxDD =
+          validDrawdowns.reduce((a, b) => a + b, 0) / validDrawdowns.length
         summaryStats.medianMaxDD = sortedDDs[Math.floor(sortedDDs.length / 2)]
-        summaryStats.maxDD_95_percentile = sortedDDs[Math.floor(sortedDDs.length * 0.95)] // 95% persentil
+        summaryStats.maxDD_95_percentile = sortedDDs[Math.floor(sortedDDs.length * 0.95)]
       } else {
-        summaryStats.averageMaxDD = 100 // Hvis alle feilet
+        // Hvis alle iterasjoner feilet, sett DD til 100
+        summaryStats.averageMaxDD = 100
         summaryStats.medianMaxDD = 100
         summaryStats.maxDD_95_percentile = 100
       }
@@ -212,11 +236,17 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
     console.log('MC Worker: Sending final result payload:', {
       allPnLs_pct,
       allMaxDrawdowns,
-      summaryStats, // Inkluderer nå numIterations og numBarsPerSim
+      summaryStats,
     })
+    // Send tilbake et objekt som matcher McResultData (uten dataInfo)
+    const resultPayload: Omit<McResultData, 'dataInfo'> = {
+      allPnLs_pct,
+      allMaxDrawdowns,
+      summaryStats,
+    }
     self.postMessage({
       type: 'mcResult',
-      payload: { allPnLs_pct, allMaxDrawdowns, summaryStats } as McResultData,
+      payload: resultPayload,
     })
   }
 }

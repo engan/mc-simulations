@@ -1,35 +1,28 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useKlines } from '../composables/useKlines';
+// --- IMPORTER SENTRALE TYPER ---
+import type {
+    TopResultItem,
+    OptimizationStrategyInfo, 
+    SmaOptimizationParams, 
+    RsiOptimizationParams,
+    ParameterRange 
+} from '../types/simulation'; // <-- Importer fra ny fil
 
-// --- Definer typer lokalt ---
-interface BestParams {
-  short: number;
-  long: number;
-  score: number;
-  trades: number;
+// --- OPPDATER Lokal type for emit ---
+type StartMcTriggerPayload = {
+  mcSettings: { iterations: number; barsPerSim: number };
+  dataSource: { symbol: string; timeframe: string; limit: number; };
+  costs: { commissionPct: number, slippageAmount: number }; // <-- LEGG TIL COSTS
 }
 
-// --- Interface for den KOMBINERTE payloaden ---
-interface StartMcPayload {
-  mcSettings: {
-    iterations: number;
-    barsPerSim: number;
-  };
-  dataSource: {
-    symbol: string;
-    timeframe: string;
-    limit: number; // Bruk limit fra dataLimitForFetch
-  };
-}
-// --- Slutt type-definisjoner ---
-
-// Definer ALLE events - spesifiser den nye payload-typen
+// --- OPPDATER defineEmits ---
 const emit = defineEmits<{
     (e: 'update-progress', message: string): void;
-    (e: 'optimization-complete', results: BestParams[] | null): void;
+    (e: 'optimization-complete', results: TopResultItem[] | null): void;
     (e: 'mc-validation-complete', results: any): void;
-    (e: 'start-mc-validation', payload: StartMcPayload): void; // <-- Ny payload type
+    (e: 'start-mc-validation', payload: StartMcTriggerPayload): void; // <-- Bruker oppdatert type
 }>()
 
 // --- Input fra brukeren ---
@@ -38,7 +31,14 @@ const timeframe = ref('1h');
 const dataLimitForFetch = ref(1000);
 const mcIterations = ref(1000);
 const mcBarsPerSim = ref(500);
-const bestParamsAvailable = ref(false); // Styres nå av om lastBestParams har verdi
+const optimizationResultsAvailable = ref(false);
+
+// --- NYTT: Valgt strategi ---
+const selectedStrategy = ref<'smaCross' | 'rsi'>('smaCross'); // Default til SMA
+
+// --- NYE: Kostnads-parametre ---
+const commissionPercent = ref(0.05); // Standard 0.05%
+const slippageAmount = ref(0.01);   // Standard 0.01 i pris-enheter
 
 // SMA Parametere
 const shortSmaPeriodMin = ref(5);
@@ -48,28 +48,29 @@ const longSmaPeriodMin = ref(30);
 const longSmaPeriodMax = ref(100);
 const longSmaPeriodStep = ref(5);
 
+// --- NYTT: RSI Parametere ---
+const rsiPeriodMin = ref(5);
+const rsiPeriodMax = ref(30);
+const rsiPeriodStep = ref(1);
+const rsiBuyLevel = ref(30); // Fastsatt verdi for nå
+const rsiSellLevel = ref(70); // Fastsatt verdi for nå
+
 // Tilstander
 const isOptimizing = ref(false);
 const isMcValidating = ref(false);
-let lastBestParams: BestParams | null = null; // Lagrer det *eneste* beste resultatet fra Steg 1
 
 // Data Composable
 const { loadKlines, klines, isLoading: isLoadingKlines, error: klinesError } = useKlines();
 
 // --- Web Worker Refs ---
 let optimizationWorker: Worker | null = null;
-let mcValidationWorker: Worker | null = null;
 
 // --- Funksjoner ---
 
 // Håndterer resultatlisten fra Steg 1
-function handleOptimizationCompleteLocal(resultsList: BestParams[] | null) { // <-- Aksepterer listen igjen
-  // Sett flagget basert på om listen har innhold
-  bestParamsAvailable.value = !!(resultsList && resultsList.length > 0);
-  // Lagre det FØRSTE (beste) resultatet lokalt for bruk i Steg 2
-  lastBestParams = (resultsList && resultsList.length > 0) ? resultsList[0] : null;
-  // Send HELE listen videre til SimulationView
-  emit('optimization-complete', resultsList);
+function handleOptimizationCompleteLocal(resultsList: TopResultItem[] | null) { 
+  optimizationResultsAvailable.value = !!(resultsList && resultsList.length > 0);
+  emit('optimization-complete', resultsList); // Sender nå korrekt type
   isOptimizing.value = false;
 }
 
@@ -77,37 +78,39 @@ function handleOptimizationCompleteLocal(resultsList: BestParams[] | null) { // 
 function startOptimization() {
   if (isOptimizing.value || isLoadingKlines.value || isMcValidating.value) return;
   isOptimizing.value = true;
-  bestParamsAvailable.value = false;
-  lastBestParams = null; // Nullstill også denne
-  emit('optimization-complete', null); // Nullstill forrige resultat i viewet
-  emit('mc-validation-complete', null); // Nullstill også MC-resultater
-  emit('update-progress', 'Starter optimalisering... Henter data...');
+  optimizationResultsAvailable.value = false;
+  emit('optimization-complete', null);
+  emit('mc-validation-complete', null);
+  emit('update-progress', `Starter optimalisering for ${selectedStrategy.value}... Henter data...`);
 
   loadKlines(symbol.value, timeframe.value, dataLimitForFetch.value)
     .then(() => {
-       if (klinesError.value || klines.value.length === 0 || klines.value.length < longSmaPeriodMax.value) {
-         const errorMsg = klinesError.value || (klines.value.length === 0 ? 'Ingen data mottatt' : `Fikk bare ${klines.value.length} datapunkter, trenger minst ${longSmaPeriodMax.value}`);
+       // Datavalidering (kan gjøres mer robust basert på strategi)
+       const minBarsNeeded = selectedStrategy.value === 'smaCross' ? longSmaPeriodMax.value : rsiPeriodMax.value * 2; // Grovt estimat for RSI
+       if (klinesError.value || klines.value.length < minBarsNeeded) {
+         const errorMsg = klinesError.value || `Fikk bare ${klines.value.length} datapunkter, trenger minst ${minBarsNeeded} for ${selectedStrategy.value}`;
          emit('update-progress', `Feil ved henting/validering av data: ${errorMsg}`);
          isOptimizing.value = false;
          return;
        }
-       emit('update-progress', `Data hentet (${klines.value.length} barer). Starter Opt Worker...`);
+       emit('update-progress', `Data hentet (${klines.value.length} barer). Starter Opt Worker for ${selectedStrategy.value}...`);
 
        if (!optimizationWorker) {
+         // Initialize worker (som før, men onmessage håndterer nå TopResultItem[])
          optimizationWorker = new Worker(new URL('../workers/optimizationWorker.ts', import.meta.url), { type: 'module' });
          optimizationWorker.onmessage = (event: MessageEvent<{ type: string; payload: any }>) => {
             const { type, payload } = event.data;
             if (type === 'progress') {
                 emit('update-progress', payload.message);
             } else if (type === 'result') {
-                // Mottar nå payload.topResults (en liste)
+                // Mottar nå payload.topResults (en liste av TopResultItem)
                 console.log('Controls: Received result list from worker:', payload.topResults);
                 const resultsList = payload.topResults && payload.topResults.length > 0 ? payload.topResults : null;
-                handleOptimizationCompleteLocal(resultsList);
+                handleOptimizationCompleteLocal(resultsList); // Kall med TopResultItem[]
             } else if (type === 'error') {
                 emit('update-progress', `Opt Worker Error: ${payload.message}`);
                 isOptimizing.value = false;
-                bestParamsAvailable.value = false;
+                optimizationResultsAvailable.value = false;
             }
          };
          optimizationWorker.onerror = (event: Event | string) => {
@@ -115,38 +118,60 @@ function startOptimization() {
             console.error("Opt Worker Error:", event);
             emit('update-progress', `Opt Worker Feil: ${message}`);
             isOptimizing.value = false;
-            bestParamsAvailable.value = false;
          };
        }
-       // Send data til optimizationWorker
+       // --- Bygg riktig parameter-payload MED kostnader ---
+       let strategyParamsPayload: OptimizationStrategyInfo;
+       // Hent basis-parametere
+       const baseParams = {
+           commissionPct: commissionPercent.value / 100.0, // Konverter % til desimal
+           slippageAmount: slippageAmount.value
+       };
+
+       if (selectedStrategy.value === 'smaCross') {
+           strategyParamsPayload = {
+               strategy: 'smaCross',
+               params: { // SmaOptimizationParams
+                   shortSma: { min: shortSmaPeriodMin.value, max: shortSmaPeriodMax.value, step: shortSmaPeriodStep.value },
+                   longSma: { min: longSmaPeriodMin.value, max: longSmaPeriodMax.value, step: longSmaPeriodStep.value },
+                   ...baseParams // Legg til kostnader
+               }
+           };
+       } else { // rsi
+           strategyParamsPayload = {
+               strategy: 'rsi',
+               params: { // RsiOptimizationParams
+                   period: { min: rsiPeriodMin.value, max: rsiPeriodMax.value, step: rsiPeriodStep.value },
+                   buyLevel: rsiBuyLevel.value,
+                   sellLevel: rsiSellLevel.value,
+                   ...baseParams // Legg til kostnader
+               }
+           };
+       }
+
+       // Send payload til worker
        optimizationWorker.postMessage({
           type: 'startOptimization',
           payload: {
             historicalKlines: JSON.parse(JSON.stringify(klines.value)),
-            parameters: {
-              shortSma: { min: shortSmaPeriodMin.value, max: shortSmaPeriodMax.value, step: shortSmaPeriodStep.value },
-              longSma: { min: longSmaPeriodMin.value, max: longSmaPeriodMax.value, step: longSmaPeriodStep.value },
-            },
-            strategy: 'smaCross'
+            strategyInfo: strategyParamsPayload // Inneholder nå kostnader
           }
        });
     })
     .catch(err => {
        emit('update-progress', `Uventet feil under datahenting: ${err.message}`);
        isOptimizing.value = false;
-       bestParamsAvailable.value = false;
+       optimizationResultsAvailable.value = false;
     });
 }
 
-// Denne kalles av knappen og sender kun en hendelse oppover
+// --- OPPDATER triggerMcValidationStart ---
 function triggerMcValidationStart() {
-  if (!bestParamsAvailable.value) {
-      emit('update-progress', "Kjør Steg 1 først for å finne parametere å validere.");
-       return;
-  }
+  if (!optimizationResultsAvailable.value) { /* ... */ return; }
   if (isOptimizing.value || isMcValidating.value) return;
 
-  const payload: StartMcPayload = {
+  // Bygg payloaden som matcher den oppdaterte StartMcTriggerPayload
+  const payload: StartMcTriggerPayload = {
       mcSettings: {
           iterations: mcIterations.value,
           barsPerSim: mcBarsPerSim.value
@@ -154,13 +179,16 @@ function triggerMcValidationStart() {
       dataSource: {
           symbol: symbol.value,
           timeframe: timeframe.value,
-          limit: dataLimitForFetch.value // Send den faktiske limit brukeren har satt
+          limit: dataLimitForFetch.value
+      },
+      costs: { // <-- Legg til costs her
+          commissionPct: commissionPercent.value / 100.0, // Send som desimal
+          slippageAmount: slippageAmount.value
       }
   };
 
-  console.log("CONTROLS: Emitting 'start-mc-validation' with payload:", payload);
-
-  emit('start-mc-validation', payload);
+  console.log("CONTROLS: Emitting 'start-mc-validation' with basic settings and costs:", payload);
+  emit('start-mc-validation', payload); // Send payload med costs
 }
 
 </script>
@@ -188,24 +216,71 @@ function triggerMcValidationStart() {
          </div>
     </fieldset>
 
+    <!-- NYTT: Strategi Velger -->
     <fieldset>
+        <legend>Strategy Selection</legend>
+        <div>
+            <label for="strategy">Strategy:</label>
+            <select id="strategy" v-model="selectedStrategy">
+                <option value="smaCross">SMA Crossover</option>
+                <option value="rsi">RSI</option>
+            </select>
+        </div>
+    </fieldset>
+
+    <!-- SMA Parametere (Vises kun hvis SMA er valgt) -->
+    <fieldset v-if="selectedStrategy === 'smaCross'">
         <legend>SMA Crossover Parameters</legend>
           <div>
             <label>Short Period:</label>
             Min: <input type="number" v-model.number="shortSmaPeriodMin" style="width: 50px;">
             Max: <input type="number" v-model.number="shortSmaPeriodMax" style="width: 50px;">
             Step: <input type="number" v-model.number="shortSmaPeriodStep" style="width: 50px;">
-            </div>
-            <div>
+          </div>
+          <div>
             <label>Long Period:</label>
             Min: <input type="number" v-model.number="longSmaPeriodMin" style="width: 50px;">
             Max: <input type="number" v-model.number="longSmaPeriodMax" style="width: 50px;">
             Step: <input type="number" v-model.number="longSmaPeriodStep" style="width: 50px;">
-            </div>
+          </div>
     </fieldset>
 
+    <!-- RSI Parametere (Vises kun hvis RSI er valgt) -->
+    <fieldset v-if="selectedStrategy === 'rsi'">
+        <legend>RSI Parameters</legend>
+          <div>
+            <label>Period:</label>
+            Min: <input type="number" v-model.number="rsiPeriodMin" style="width: 50px;">
+            Max: <input type="number" v-model.number="rsiPeriodMax" style="width: 50px;">
+            Step: <input type="number" v-model.number="rsiPeriodStep" style="width: 50px;">
+          </div>
+          <div>
+            <label for="rsiBuyLevel">Buy Level:</label>
+            <input type="number" id="rsiBuyLevel" v-model.number="rsiBuyLevel" style="width: 50px;" disabled> <!-- Fastsatt, så disabled -->
+          </div>
+           <div>
+            <label for="rsiSellLevel">Sell Level:</label>
+            <input type="number" id="rsiSellLevel" v-model.number="rsiSellLevel" style="width: 50px;" disabled> <!-- Fastsatt, så disabled -->
+          </div>
+    </fieldset>
+
+    <!-- *** NYTT: Felt for kostnader *** -->
+    <fieldset>
+        <legend>Backtest Costs</legend>
+        <div>
+            <label for="commission">Commission (%):</label>
+            <input type="number" id="commission" step="0.01" v-model.number="commissionPercent" style="width: 70px;">
+        </div>
+        <div>
+            <label for="slippage">Slippage (Amount):</label>
+            <input type="number" id="slippage" step="0.01" v-model.number="slippageAmount" style="width: 70px;">
+            <span style="font-size: 0.8em; margin-left: 5px;">(Absolute price units)</span>
+        </div>
+    </fieldset>
+     <!-- *** SLUTT NYTT FELT *** -->
+
     <button @click="startOptimization" :disabled="isOptimizing || isMcValidating || isLoadingKlines">
-      {{ isOptimizing ? 'Optimizing...' : (isLoadingKlines ? 'Loading Data...' : 'Start Optimization (Step 1)') }}
+      {{ isOptimizing ? `Optimizing ${selectedStrategy}...` : (isLoadingKlines ? 'Loading Data...' : 'Start Optimization (Step 1)') }}
     </button>
 
      <hr>
@@ -224,7 +299,7 @@ function triggerMcValidationStart() {
     </fieldset>
 
      <!-- Knapp for å starte Steg 2 -->
-     <button @click="triggerMcValidationStart" :disabled="isOptimizing || isMcValidating || !bestParamsAvailable">
+     <button @click="triggerMcValidationStart" :disabled="isOptimizing || isMcValidating || !optimizationResultsAvailable">
       {{ isMcValidating ? 'Validating...' : 'Run MC Validation (Step 2)' }}
     </button>
   </div>
@@ -235,6 +310,7 @@ function triggerMcValidationStart() {
   legend { font-weight: bold; padding: 0 0.5rem; margin-left: 0.5rem; color: #ddd;}
   label { display: inline-block; min-width: 80px; margin-right: 5px; }
   input[type=number] { width: 100px; } /* Juster bredde på tall-input */
+  input:disabled { background-color: #444; cursor: not-allowed; } /* Style for disabled inputs */
   button { margin-top: 0.5rem; padding: 8px 15px; cursor: pointer; }
   button:disabled { cursor: not-allowed; opacity: 0.6; }
   hr { border: none; border-top: 1px solid #444; margin: 1.5rem 0; }

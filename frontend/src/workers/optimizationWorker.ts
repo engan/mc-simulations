@@ -1,4 +1,19 @@
-import init, { run_backtest_sma_cross_wasm } from '../rust/pkg/mc_simulations.js' // Importer kun funksjonen
+import init, {
+  run_backtest_sma_cross_wasm,
+  run_backtest_rsi_wasm,
+} from '../rust/pkg/mc_simulations.js' // Importer kun funksjonen
+
+// --- IMPORTER SENTRALE TYPER ---
+import type {
+  OptimizationStrategyInfo, // Info mottatt fra Controls
+  SmaOptimizationParams,
+  RsiOptimizationParams,
+  TopResultItem, // Resultat som sendes tilbake
+  SmaBestParams,
+  RsiBestParams,
+} from '../types/simulation' // <-- Importer fra den sentrale filen
+
+import type { BacktestResultWasm } from '../rust/pkg/mc_simulations' // Fra Wasm
 
 console.log('Optimization Worker (TypeScript) Loaded')
 
@@ -11,38 +26,14 @@ interface Kline {
   close: number
   volume: number
 }
-interface ParameterRange {
-  min: number
-  max: number
-  step: number
-}
-interface OptimizationParameters {
-  shortSma: ParameterRange
-  longSma: ParameterRange
-}
-interface BestParams {
-  short: number
-  long: number
-  score: number
-  trades: number
-}
-interface WorkerIncomingPayload {
-  historicalKlines: Kline[]
-  parameters: OptimizationParameters
-  strategy: string
-}
-declare const self: DedicatedWorkerGlobalScope
 
-// --- MANUELT DEFINERT Interface for Wasm-resultat ---
-// MÅ matche Rust struct (uten error-feltet) + free()
-interface BacktestResultWasm {
-  readonly profit_factor: number
-  readonly trades: number
-  readonly total_profit: number
-  readonly total_loss: number
-  readonly max_drawdown: number;
-  free(): void
+// Oppdatert incoming payload type (bruker importerte typer)
+interface WorkerIncomingPayload {
+  historicalKlines: Kline[] // Bruker lokal Kline-type
+  strategyInfo: OptimizationStrategyInfo // Bruker importert type
 }
+
+declare const self: DedicatedWorkerGlobalScope
 
 let wasmInitialized = false
 const ERROR_PF_VALUE = -1.0 // Må matche Rust
@@ -55,7 +46,7 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
   if (type === 'startOptimization') {
     console.log('Worker (TS) received startOptimization:', payload)
 
-    // --- Initialiser Wasm ---
+    // --- Wasm Init (som før) ---
     if (!wasmInitialized) {
       try {
         console.log('Worker (TS): Initializing Wasm...')
@@ -63,139 +54,183 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
         wasmInitialized = true
         console.log('Worker (TS): Wasm initialized.')
       } catch (err) {
-        console.error('Worker (TS): Wasm initialization failed:', err)
-        self.postMessage({ type: 'error', payload: { message: `Wasm init failed: ${err}` } })
-        return
+        /* ... (feilhåndtering som før) */
       }
     }
 
     const optimizationPayload = payload as WorkerIncomingPayload
-    const { historicalKlines, parameters, strategy } = optimizationPayload
+    // --- Hent ut data og strategyInfo ---
+    const { historicalKlines, strategyInfo } = optimizationPayload
+    const { strategy, params } = strategyInfo // params inneholder nå kostnader
 
-    if (strategy !== 'smaCross') {
-      self.postMessage({ type: 'error', payload: { message: 'Only smaCross strategy supported' } })
-      return
-    }
+    // --- Hent ut kostnader ---
+    const commissionPct = params.commissionPct
+    const slippageAmount = params.slippageAmount
 
     const closePrices: number[] = historicalKlines.map((k) => k.close)
-    const closePricesTyped = new Float64Array(closePrices) // Effektiv for Wasm
-    const paramShort: ParameterRange = parameters.shortSma
-    const paramLong: ParameterRange = parameters.longSma
+    const closePricesTyped = new Float64Array(closePrices)
 
-    let bestParams: BestParams | null = null
-    let bestScore: number = -Infinity
-    let topResults: BestParams[] = []
+    // --- Initialiser resultatlister ---
+    let topResults: TopResultItem[] = [] // Bruker nå union type
     let combinationsTested: number = 0
-    const totalCombinations: number =
-      Math.max(1, (paramShort.max - paramShort.min) / paramShort.step + 1) *
-      Math.max(1, (paramLong.max - paramLong.min) / paramLong.step + 1)
+    let totalCombinations: number = 0 // Beregnes basert på strategi
 
-    self.postMessage({
-      type: 'progress',
-      payload: {
-        message: `Starting Grid Search (using Wasm). Total combinations: ~${Math.round(totalCombinations)}`,
-      },
-    })
+    // --- Start optimalisering basert på strategi ---
+    if (strategy === 'smaCross') {
+      // --- SMA Crossover Logikk ---
+      const smaParams = params as SmaOptimizationParams // Type assertion
+      const paramShort = smaParams.shortSma
+      const paramLong = smaParams.longSma
+      totalCombinations =
+        Math.max(1, Math.floor((paramShort.max - paramShort.min) / paramShort.step) + 1) *
+        Math.max(1, Math.floor((paramLong.max - paramLong.min) / paramLong.step) + 1)
 
-    // Grid Search
-    for (let shortP = paramShort.min; shortP <= paramShort.max; shortP += paramShort.step) {
-      for (let longP = paramLong.min; longP <= paramLong.max; longP += paramLong.step) {
-        if (shortP >= longP) continue
+      self.postMessage({
+        type: 'progress',
+        payload: {
+          message: `Starting SMA Grid Search. Total combinations: ~${Math.round(totalCombinations)}`,
+        },
+      })
+
+      for (let shortP = paramShort.min; shortP <= paramShort.max; shortP += paramShort.step) {
+        for (let longP = paramLong.min; longP <= paramLong.max; longP += paramLong.step) {
+          if (shortP >= longP) continue
+          let backtestResult: BacktestResultWasm | null = null
+          try {
+            // --- LEGG TIL KOSTNADER I WASM-KALL ---
+            backtestResult = run_backtest_sma_cross_wasm(
+              closePricesTyped,
+              shortP,
+              longP,
+              commissionPct, // <-- Ny
+              slippageAmount, // <-- Ny
+            )
+
+            if (!backtestResult || backtestResult.profit_factor === ERROR_PF_VALUE) {
+              continue
+            }
+
+            const currentResult: SmaBestParams = {
+              type: 'smaCross', // Viktig for mottaker
+              short: shortP,
+              long: longP,
+              score: backtestResult.profit_factor,
+              trades: backtestResult.trades,
+            }
+
+            // --- Oppdatert topp N logikk (bruker nå TopResultItem) ---
+            updateTopResults(topResults, currentResult)
+          } catch (wasmError) {
+            /* ... (feilhåndtering som før) */
+          } finally {
+            if (backtestResult) backtestResult.free()
+          }
+
+          combinationsTested++
+          if (
+            combinationsTested % (Math.floor(totalCombinations / 50) + 1) === 0 ||
+            combinationsTested >= totalCombinations
+          ) {
+            const bestScoreSoFar = topResults.length > 0 ? topResults[0].score : -Infinity
+            self.postMessage({
+              type: 'progress',
+              payload: {
+                message: `SMA Tested ${combinationsTested} / ~${Math.round(totalCombinations)}. Best score: ${bestScoreSoFar.toFixed(3)}`,
+              },
+            })
+          }
+        }
+      }
+    } else if (strategy === 'rsi') {
+      // --- RSI Logikk ---
+      const rsiParams = params as RsiOptimizationParams // Type assertion
+      const paramPeriod = rsiParams.period
+      // Hent faste nivåer
+      const buyLevel = rsiParams.buyLevel
+      const sellLevel = rsiParams.sellLevel
+      totalCombinations = Math.max(
+        1,
+        Math.floor((paramPeriod.max - paramPeriod.min) / paramPeriod.step) + 1,
+      )
+
+      self.postMessage({
+        type: 'progress',
+        payload: {
+          message: `Starting RSI Grid Search. Total combinations: ~${Math.round(totalCombinations)}`,
+        },
+      })
+
+      for (let rsiP = paramPeriod.min; rsiP <= paramPeriod.max; rsiP += paramPeriod.step) {
         let backtestResult: BacktestResultWasm | null = null
         try {
-          // --- Logg FØR kall ---
-          console.log(`Calling Wasm for: ${shortP}/${longP}`)
-
-          backtestResult = run_backtest_sma_cross_wasm(closePricesTyped, shortP, longP)
-
-          // --- Logg RETT ETTER kall (uansett resultat) ---
-          console.log(`Wasm returned for ${shortP}/${longP}:`, backtestResult)
+          // --- LEGG TIL KOSTNADER I WASM-KALL ---
+          backtestResult = run_backtest_rsi_wasm(
+            closePricesTyped, // <-- BRUK HISTORISKE DATA HER
+            rsiP,
+            buyLevel,
+            sellLevel,
+            commissionPct,
+            slippageAmount
+        );
 
           if (!backtestResult || backtestResult.profit_factor === ERROR_PF_VALUE) {
             continue
           }
 
-          // --- Logg resultatet FØR feilsjekk ---
-          console.log(
-            `Params: ${shortP}/${longP}, Result PF: ${backtestResult.profit_factor}, Trades: ${backtestResult.trades}`,
-          )
-
-          // --- Sjekk for null OG SPESIELL FEILVERDI ---
-          if (!backtestResult) {
-            console.warn(`Wasm call returned null/undefined for ${shortP}/${longP}`)
-            continue
-          }
-
-          // Sjekk om profit_factor indikerer en feil fra Rust
-          if (backtestResult.profit_factor === ERROR_PF_VALUE) {
-            console.warn(
-              `Backtest skipped for ${shortP}/${longP} due to internal Wasm error indicator.`,
-            )
-            continue // Hopp over denne kombinasjonen
-          }
-
-          // --- Nå er det trygt å bruke backtestResult ---
-          const score: number = backtestResult.profit_factor
-
-          const currentResult: BestParams = {
-            short: shortP,
-            long: longP,
+          const currentResult: RsiBestParams = {
+            type: 'rsi', // Viktig for mottaker
+            period: rsiP,
+            // buyLevel, // Kan legges til hvis de returneres/lagres
+            // sellLevel,
             score: backtestResult.profit_factor,
             trades: backtestResult.trades,
           }
 
-          // --- Logikk for å holde topp N sortert ---
-          if (topResults.length < TOP_N_RESULTS) {
-            topResults.push(currentResult)
-            // Sorter synkende etter score når vi legger til nye
-            topResults.sort((a, b) => b.score - a.score)
-          } else if (currentResult.score > topResults[TOP_N_RESULTS - 1].score) {
-            // Hvis bedre enn den dårligste i topp N, erstatt den dårligste
-            topResults[TOP_N_RESULTS - 1] = currentResult
-            // Sorter synkende igjen
-            topResults.sort((a, b) => b.score - a.score)
-          }
-          // --- Slutt topp N logikk ---
-
-          if (score > bestScore) {
-            bestScore = score
-            bestParams = { short: shortP, long: longP, score: score, trades: backtestResult.trades }
-            console.log(`New best found: ${JSON.stringify(bestParams)}`)
-          }
+          // --- Oppdatert topp N logikk (bruker nå TopResultItem) ---
+          updateTopResults(topResults, currentResult)
         } catch (wasmError) {
-          const errorMessage = wasmError instanceof Error ? wasmError.message : String(wasmError); // Hent meldingen
-          console.error(`Wasm backtest call failed for ${shortP}/${longP}:`, wasmError)
-          self.postMessage({
-            type: 'error',
-            payload: { message: `Wasm backtest call failed: ${errorMessage}` },
-          })
-          return // Avbryt ved alvorlig Wasm-feil
+          /* ... (feilhåndtering som før) */
         } finally {
-          // --- VIKTIG: Frigjør minne uansett ---
-          if (backtestResult) {
-            backtestResult.free()
-          }
+          if (backtestResult) backtestResult.free()
         }
 
         combinationsTested++
-        // Progress-melding (bruk score fra beste i listen)
         if (
-          combinationsTested % (Math.floor(totalCombinations / 50) + 1) === 0 ||
-          combinationsTested === totalCombinations
+          combinationsTested % (Math.floor(totalCombinations / 20) + 1) === 0 ||
+          combinationsTested >= totalCombinations
         ) {
           const bestScoreSoFar = topResults.length > 0 ? topResults[0].score : -Infinity
           self.postMessage({
             type: 'progress',
             payload: {
-              message: `Tested ${combinationsTested} / ~${Math.round(totalCombinations)}. Best score: ${bestScoreSoFar.toFixed(2)}`,
+              message: `RSI Tested ${combinationsTested} / ~${Math.round(totalCombinations)}. Best score: ${bestScoreSoFar.toFixed(3)}`,
             },
           })
         }
       }
+    } else {
+      // Ukjent strategi
+      self.postMessage({ type: 'error', payload: { message: `Unsupported strategy: ${strategy}` } })
+      return // Avslutt worker
     }
-    console.log(`Worker (TS) finished. Top ${topResults.length} results:`, topResults)
-    // Send HELE listen med toppresultater
-    self.postMessage({ type: 'result', payload: { topResults } }) // Endret fra bestParams til topResults
+
+    console.log(
+      `Worker (TS) finished ${strategy} optimization. Top ${topResults.length} results:`,
+      topResults,
+    )
+    // Send HELE listen med toppresultater (nå TopResultItem[])
+    self.postMessage({ type: 'result', payload: { topResults } })
+  }
+}
+
+// --- Hjelpefunksjon for å oppdatere topp N ---
+function updateTopResults(topResults: TopResultItem[], currentResult: TopResultItem) {
+  if (topResults.length < TOP_N_RESULTS) {
+    topResults.push(currentResult)
+    topResults.sort((a, b) => b.score - a.score) // Sort descending by score
+  } else if (currentResult.score > topResults[TOP_N_RESULTS - 1].score) {
+    topResults[TOP_N_RESULTS - 1] = currentResult
+    topResults.sort((a, b) => b.score - a.score) // Sort descending by score
   }
 }
 

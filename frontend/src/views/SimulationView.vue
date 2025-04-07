@@ -2,49 +2,27 @@
 import { ref } from 'vue';
 import SimulationControls from '../components/SimulationControls.vue';
 import SimulationResults from '../components/SimulationResults.vue';
-import { useKlines } from '../composables/useKlines'; 
+import { useKlines } from '../composables/useKlines';
 
-// Type for det vi forventer fra optimization worker
-interface BestParams { short: number; long: number; score: number; trades: number; }
+// --- IMPORTER SENTRALE TYPER ---
+import type {
+    TopResultItem,
+    StartMcValidationPayload, // Payload som skal sendes til MC worker
+    McResultData,             // Type for MC resultater mottatt
+    SmaBestParams,            // For type checking i handlers
+    RsiBestParams,            // For type checking i handlers
+    DataInfo                  // For å bygge dataInfo-delen
+} from '../types/simulation'; // <-- Importer fra ny fil
 
-// --- Interface for den mottatte payloaden (samme som i Controls) ---
-interface StartMcPayload {
-  mcSettings: {
-    iterations: number;
-    barsPerSim: number;
-  };
-  dataSource: {
-    symbol: string;
-    timeframe: string;
-    limit: number;
-  };
-}
-
-// --- Interface for dataInfo (NY) ---
-interface DataInfo {
-  symbol: string;
-  timeframe: string;
-  count: number;
-  startTime: number;
-  endTime: number;
-}
-
-// --- Interface for MC resultater som kan inkludere dataInfo ---
-interface McResultsWithData {
-    allPnLs_pct: number[];
-    allMaxDrawdowns: number[];
-    summaryStats: Record<string, number>;
-    dataInfo?: DataInfo; // Gjør den valgfri
-}
 
 // Ref for å holde listen over topp resultater fra Steg 1
-const optimizationTopResults = ref<BestParams[] | null>(null);
+const optimizationTopResults = ref<TopResultItem[] | null>(null); 
 // Ref for å holde statusmeldinger
 const currentStatusMessage = ref('Idle');
 // Ref for å holde parametrene VALGT av brukeren for Steg 2
-const selectedParamsForMc = ref<BestParams | null>(null);
+const selectedParamsForMc = ref<TopResultItem | null>(null);
 // Ref for å holde resultatene fra Steg 2
-const mcValidationResults = ref<McResultsWithData | null>(null);
+const mcValidationResults = ref<McResultData | null>(null);
 // Ref til MC worker
 let mcValidationWorker: Worker | null = null;
 // Bruk useKlines her for å ha tilgang til klines og lastefunksjon
@@ -65,80 +43,104 @@ function handleProgressUpdate(message: string) {
     }
 }
 
+
 // Mottar LISTEN over topp resultater fra Steg 1
-function handleOptimizationComplete(resultsList: BestParams[] | null) {
-    optimizationTopResults.value = resultsList; // Lagre listen
-    selectedParamsForMc.value = null; // Nullstill valgte params
-    mcValidationResults.value = null; // Nullstill MC-resultater
+function handleOptimizationComplete(resultsList: TopResultItem[] | null) { // Bruker importert TopResultItem
+    optimizationTopResults.value = resultsList;
+    selectedParamsForMc.value = null;
+    mcValidationResults.value = null;
     currentStatusMessage.value = (resultsList && resultsList.length > 0)
-      ? `Optimalisering (Steg 1) ferdig! Fant ${resultsList.length} topp-resultater.`
-      : "Optimalisering (Steg 1) fullført (ingen resultater funnet).";
+      ? `Optimalisering (${resultsList[0]?.type ?? 'N/A'}) ferdig! Fant ${resultsList.length} topp-resultater.`
+      : "Optimalisering fullført (ingen resultater funnet).";
 }
 
 // Mottar det ENE valgte parametersettet fra SimulationResults
-function handleParamsSelectedForMc(params: BestParams) {
+function handleParamsSelectedForMc(params: TopResultItem) { // Bruker importert TopResultItem
+    console.log("VIEW: handleParamsSelectedForMc called with:", params);
     selectedParamsForMc.value = params;
-    currentStatusMessage.value = `Params ${params.short}/${params.long} selected for MC Validation.`;
-    mcValidationResults.value = null; // Nullstill evt. gamle MC-resultater
+    console.log("VIEW: selectedParamsForMc.value is now:", JSON.stringify(selectedParamsForMc.value));
+    let paramString = '';
+    // Bruk type guards eller assertions her hvis nødvendig
+    if (params.type === 'smaCross') {
+        // Nå vet TS at params er SmaBestParams her
+        paramString = `${params.short}/${params.long}`;
+    } else if (params.type === 'rsi') {
+        // Nå vet TS at params er RsiBestParams her
+        paramString = `Period ${params.period}`;
+    }
+    currentStatusMessage.value = `Params ${paramString} (${params.type}) selected for MC Validation.`;
+    mcValidationResults.value = null;
 }
 
-// Mottar nå 'settings' payload fra SimulationControls
-function handleStartMcValidationRequest(payload: StartMcPayload) {
-  const { mcSettings, dataSource } = payload; // Pakk ut payloaden
+// Definer typen for den enkle payloaden fra Controls lokalt her,
+// siden den bare brukes i denne ene funksjonen for mottak.
+type StartMcTriggerPayload = {
+  mcSettings: { iterations: number; barsPerSim: number };
+  dataSource: { symbol: string; timeframe: string; limit: number; };
+}
 
-  console.log("VIEW: handleStartMcValidationRequest triggered. selectedParamsForMc:", JSON.stringify(selectedParamsForMc.value), "Payload:", payload);
+// Funksjonen mottar fortsatt den *enkle* payloaden fra Controls for nå
+function handleStartMcValidationRequest(triggerPayload: StartMcTriggerPayload) { // Bruker lokal type
+  console.log("VIEW: handleStartMcValidationRequest triggered. triggerPayload:", triggerPayload);
 
+  type StartMcTriggerPayload = {
+      mcSettings: { iterations: number; barsPerSim: number };
+      dataSource: { symbol: string; timeframe: string; limit: number; };
+      costs: { commissionPct: number, slippageAmount: number }; // <-- Inkluderer nå costs
+    }
+
+    const receivedPayload = triggerPayload as StartMcTriggerPayload; // Type assertion for klarhet
+
+    console.log("VIEW: handleStartMcValidationRequest triggered. Received Payload:", receivedPayload);
+  
     if (!selectedParamsForMc.value) {
         currentStatusMessage.value = "Feil: Ingen parametere er valgt for MC validering.";
         return;
     }
 
-    // --- Bruk dataSource fra payload ---
-    const symbolToLoad = dataSource.symbol;
-    const timeframeToLoad = dataSource.timeframe;
-    const dataLimitToLoad = dataSource.limit;
+    // Pakk ut alt fra mottatt payload
+    const { mcSettings, dataSource, costs } = receivedPayload;
+    const selectedParams = selectedParamsForMc.value;
+    const strategyToRun = selectedParams.type;
 
-    currentStatusMessage.value = `Starter MC for ${selectedParamsForMc.value.short}/${selectedParamsForMc.value.long} (${mcSettings.iterations} it, ${mcSettings.barsPerSim} bars). Henter data (${symbolToLoad} ${timeframeToLoad}, limit ${dataLimitToLoad})...`;
+    let paramString = '';
+    // Type assertions for å få tilgang til spesifikke felter
+    if (strategyToRun === 'smaCross') { paramString = `${(selectedParams as SmaBestParams).short}/${(selectedParams as SmaBestParams).long}`; }
+    else if (strategyToRun === 'rsi') { paramString = `Period ${(selectedParams as RsiBestParams).period}`; }
+
+    currentStatusMessage.value = `Starter MC for ${strategyToRun} ${paramString} (${mcSettings.iterations} it, ${mcSettings.barsPerSim} bars). Henter data (${dataSource.symbol} ${dataSource.timeframe})...`;
     mcValidationResults.value = null;
 
-    // Kall loadKlines med verdiene fra dataSource
-    loadKlines(symbolToLoad, timeframeToLoad, dataLimitToLoad)
+    loadKlines(dataSource.symbol, dataSource.timeframe, dataSource.limit)
         .then(() => {
           if (klinesError.value || klines.value.length < 2) {
-                 currentStatusMessage.value = `MC Feil: Kunne ikke hente data (${symbolToLoad} ${timeframeToLoad}): ${klinesError.value || 'Ingen data'}`;
-                 // Nullstill lagrede verdier ved feil?
-                 currentSymbolForData.value = '';
-                 currentTimeframeForData.value = '';
+                 currentStatusMessage.value = `MC Feil: Kunne ikke hente data eller for lite data (${klines.value?.length ?? 0} barer) for bootstrapping.`;
                  return;
              }
-
-            // --- VIKTIG: Lagre symbol/timeframe NÅR data er hentet ---
-            currentSymbolForData.value = symbolToLoad;
-            currentTimeframeForData.value = timeframeToLoad;
-            currentStatusMessage.value = `MC Data klar (${klines.value.length} barer for ${currentSymbolForData.value} ${currentTimeframeForData.value}). Starter MC Worker...`;
+            currentSymbolForData.value = dataSource.symbol;
+            currentTimeframeForData.value = dataSource.timeframe;
+            currentStatusMessage.value = `MC Data klar (${klines.value.length} barer). Starter MC Worker...`;
 
             if (!mcValidationWorker) {
                 mcValidationWorker = new Worker(new URL('../workers/mcValidationWorker.ts', import.meta.url), { type: 'module' });
-                 mcValidationWorker.onmessage = (event) => {
-                    const { type, payload } = event.data;
-                    if (type === 'mcProgress') { handleProgressUpdate(`MC: ${payload.message}`); }
-                    else if (type === 'mcResult') { handleMcValidationComplete(payload); }
-                    else if (type === 'mcError') { handleProgressUpdate(`MC Worker Feil: ${payload.message}`); }
-                 };
-                 mcValidationWorker.onerror = (event) => { handleProgressUpdate(`MC Worker Feil: ${event.message}`); };
+                mcValidationWorker.onmessage = (event) => { handleMcWorkerMessage(event); }; // Bruk en dedikert handler
+                mcValidationWorker.onerror = (event) => { handleMcWorkerError(event); }; // Bruk en dedikert handler
             }
 
-            // Send melding til MC worker - bruk mcSettings fra payload
+            // --- Bygg den *fulle* payloaden for MC worker MED costs ---
+            const mcWorkerPayload: StartMcValidationPayload = { // Bruker importert type
+                mcSettings: mcSettings,
+                dataSource: dataSource,
+                selectedStrategyParams: JSON.parse(JSON.stringify(selectedParams)),
+                strategy: strategyToRun,
+                historicalKlines: JSON.parse(JSON.stringify(klines.value)),
+                costs: costs // <-- Legg til costs fra mottatt payload
+            };
+
+            console.log("VIEW: Posting message to MC worker:", mcWorkerPayload);
             mcValidationWorker.postMessage({
                 type: 'startMcValidation',
-                payload: {
-                    historicalKlines: JSON.parse(JSON.stringify(klines.value)),
-                    parameters: JSON.parse(JSON.stringify(selectedParamsForMc.value)),
-                    // Bruk mottatte verdier fra mcSettings:
-                    numIterations: mcSettings.iterations,
-                    numBarsPerSim: mcSettings.barsPerSim,
-                    strategy: 'smaCross'
-                }
+                payload: mcWorkerPayload
             });
         })
         .catch(err => {
@@ -151,28 +153,37 @@ function handleStartMcValidationRequest(payload: StartMcPayload) {
         });
 }
 
+// Dedikerte handlers for worker meldinger/feil
+function handleMcWorkerMessage(event: MessageEvent) {
+    const { type, payload } = event.data;
+    if (type === 'mcProgress') { handleProgressUpdate(`MC: ${payload.message}`); }
+    else if (type === 'mcResult') { handleMcValidationComplete(payload); } // Kall eksisterende slutt-handler
+    else if (type === 'mcError') { handleProgressUpdate(`MC Worker Feil: ${payload.message}`); }
+}
+function handleMcWorkerError(event: Event | string) {
+    const message = event instanceof Event ? (event as ErrorEvent).message : String(event);
+    handleProgressUpdate(`MC Worker Feil: ${message}`);
+}
+
 // Mottar det endelige MC-resultatet
-function handleMcValidationComplete(results: any) { // Mottar fortsatt 'any' fra worker
+function handleMcValidationComplete(results: McResultData) { // Mottar nå McResultData direkte (eller any hvis worker ikke er typet)
   console.log("SimulationView: Received mcResult payload:", results);
 
-  // Lag et nytt objekt med riktig type
-  const finalMcResults: McResultsWithData = {
-      allPnLs_pct: results.allPnLs_pct || [],
-      allMaxDrawdowns: results.allMaxDrawdowns || [],
-      summaryStats: results.summaryStats || {},
-      // Legg til dataInfo hvis klines finnes, bruk de lagrede refs
-      dataInfo: (klines.value && klines.value.length > 0)
-          ? {
-                symbol: currentSymbolForData.value, // <-- Bruk ref
-                timeframe: currentTimeframeForData.value, // <-- Bruk ref
-                count: klines.value.length,
-                startTime: klines.value[0].timestamp,
-                endTime: klines.value[klines.value.length - 1].timestamp
-            }
-          : undefined // Ellers er dataInfo undefined
-  };
+   // Bygg dataInfo (som før)
+  let dataInfoPart: { dataInfo?: DataInfo } = {}; // Bruker importert DataInfo
+   if (klines.value && klines.value.length > 0) {
+       dataInfoPart.dataInfo = {
+           symbol: currentSymbolForData.value,
+           timeframe: currentTimeframeForData.value,
+           count: klines.value.length,
+           startTime: klines.value[0].timestamp,
+           endTime: klines.value[klines.value.length - 1].timestamp
+       };
+   }
 
-  mcValidationResults.value = finalMcResults; // Sett ref til det typede objektet
+  // Anta at results *er* McResultData (kan trenge type guard fra worker senere)
+  mcValidationResults.value = { ...results, ...dataInfoPart };
+
   console.log("SimulationView: mcValidationResults ref set to:", mcValidationResults.value);
   currentStatusMessage.value = "MC Validering ferdig.";
 }
@@ -191,10 +202,11 @@ function handleMcValidationComplete(results: any) { // Mottar fortsatt 'any' fra
         />
       </section>
       <section class="results-section">
+         <!-- SimulationResults må også oppdateres til å håndtere TopResultItem -->
         <SimulationResults
           :status-message="currentStatusMessage"
           :top-results="optimizationTopResults"
-          :mc-results="mcValidationResults" 
+          :mc-results="mcValidationResults"
           :selected-params-for-mc="selectedParamsForMc"
           @select-params-for-mc="handleParamsSelectedForMc"
         />

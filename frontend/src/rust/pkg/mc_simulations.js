@@ -37,14 +37,32 @@ function passArrayF64ToWasm0(arg, malloc) {
 }
 /**
  * @param {Float64Array} close_prices
- * @param {number} short_period
- * @param {number} long_period
+ * @param {number} period
+ * @param {number} buy_level
+ * @param {number} sell_level
+ * @param {number} commission_pct
+ * @param {number} slippage_amount
  * @returns {BacktestResultWasm}
  */
-export function run_backtest_sma_cross_wasm(close_prices, short_period, long_period) {
+export function run_backtest_rsi_wasm(close_prices, period, buy_level, sell_level, commission_pct, slippage_amount) {
     const ptr0 = passArrayF64ToWasm0(close_prices, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.run_backtest_sma_cross_wasm(ptr0, len0, short_period, long_period);
+    const ret = wasm.run_backtest_rsi_wasm(ptr0, len0, period, buy_level, sell_level, commission_pct, slippage_amount);
+    return BacktestResultWasm.__wrap(ret);
+}
+
+/**
+ * @param {Float64Array} close_prices
+ * @param {number} short_period
+ * @param {number} long_period
+ * @param {number} commission_pct
+ * @param {number} slippage_amount
+ * @returns {BacktestResultWasm}
+ */
+export function run_backtest_sma_cross_wasm(close_prices, short_period, long_period, commission_pct, slippage_amount) {
+    const ptr0 = passArrayF64ToWasm0(close_prices, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.run_backtest_sma_cross_wasm(ptr0, len0, short_period, long_period, commission_pct, slippage_amount);
     return BacktestResultWasm.__wrap(ret);
 }
 
@@ -174,6 +192,9 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
+    imports.wbg.__wbg_log_c222819a41e063d3 = function(arg0) {
+        console.log(arg0);
+    };
     imports.wbg.__wbindgen_init_externref_table = function() {
         const table = wasm.__wbindgen_export_0;
         const offset = table.grow(4);
@@ -183,6 +204,10 @@ function __wbg_get_imports() {
         table.set(offset + 2, true);
         table.set(offset + 3, false);
         ;
+    };
+    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
+        const ret = getStringFromWasm0(arg0, arg1);
+        return ret;
     };
     imports.wbg.__wbindgen_throw = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));

@@ -6,35 +6,32 @@ export function useKlines() {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
 
-  // Funksjon for å laste data, tar parametere
+  // Funksjon for å laste data
   async function loadKlines(
     symbol: string,
     interval: string,
-    limit: number = 1000, // Standard til maks per request
-    startTime?: number,
-    endTime?: number
+    totalLimit: number = 1000 // Betyr nå totalt antall ønsket
   ) {
     isLoading.value = true;
     error.value = null;
-    klines.value = []; // Tømmer forrige resultat
+    klines.value = [];
 
     try {
-      const fetchedKlines = await fetchBinanceKlines(symbol, interval, limit, startTime, endTime);
+      // Kaller den oppdaterte fetchBinanceKlines med totalLimit
+      const fetchedKlines = await fetchBinanceKlines(symbol, interval, totalLimit);
       klines.value = fetchedKlines;
-      console.log(`useKlines: Hentet ${klines.value.length} klines for ${symbol} ${interval}`);
+      console.log(`useKlines: Hentet ${klines.value.length} klines for ${symbol} ${interval} (requested ${totalLimit})`);
     } catch (err: any) {
       console.error("useKlines: Feil under henting:", err);
       error.value = err.message || 'Ukjent feil ved henting av klines.';
-      klines.value = []; // Sørg for at den er tom ved feil
+      klines.value = [];
     } finally {
       isLoading.value = false;
     }
   }
 
-  // Returnerer reaktive referanser (men klines som readonly for å unngå ekstern modifikasjon)
-  // og funksjonen for å laste data
   return {
-    klines: readonly(klines), // Brukere av composable kan lese, men ikke direkte sette klines
+    klines: readonly(klines),
     isLoading: readonly(isLoading),
     error: readonly(error),
     loadKlines // Funksjon for å initiere lasting

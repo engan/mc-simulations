@@ -2,34 +2,19 @@
 import { ref, watch, computed, type Ref } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import type { ApexOptions } from 'apexcharts';
+import type {
+    TopResultItem,
+    SmaBestParams,
+    RsiBestParams,
+    McResultData
+} from '../types/simulation';
 
-// --- Definer typer lokalt (eller importer fra felles fil) ---
-type ChartSeries = { name: string; data: number[] }[];
-interface BestParams { short: number; long: number; score: number; trades: number; }
-
-// --- Interface for dataInfo (samme som i View) ---
-interface DataInfo {
-  symbol: string;
-  timeframe: string;
-  count: number;
-  startTime: number;
-  endTime: number;
-}
-// --- Oppdatert interface for MC Resultater (samme som i View) ---
-interface McResultsData { // Omdøpt fra McResultsWithData for å matche prop-navn
-  allPnLs_pct: number[];
-  allMaxDrawdowns: number[];
-  summaryStats: Record<string, number>;
-  dataInfo?: DataInfo; // <-- Inkludert og valgfri
-}
-// --- Slutt type-definisjoner ---
-
-// Definerer props med den OPPDATERTE McResultsData typen
+// Props definisjon (som før)
 const props = defineProps<{
   statusMessage?: string;
-  topResults?: BestParams[] | null;
-  mcResults?: McResultsData | null; // <-- Bruker nå typen som inkluderer dataInfo?
-  selectedParamsForMc?: BestParams | null;
+  topResults?: TopResultItem[] | null;
+  mcResults?: McResultData | null;
+  selectedParamsForMc?: TopResultItem | null;
 }>();
 
 // Definerer event for å sende valgte params oppover
@@ -41,6 +26,19 @@ const pnlChartSeries: Ref<ChartSeries> = ref([]);
 const ddChartOptions: Ref<ApexOptions> = ref({});
 const ddChartSeries: Ref<ChartSeries> = ref([]);
 
+  // --- NY Hjelpefunksjon for unik nøkkel i v-for ---
+function generateResultKey(result: TopResultItem): string {
+    if (result.type === 'smaCross') {
+        return `sma-${result.short}-${result.long}`;
+    } else if (result.type === 'rsi') {
+        return `rsi-${result.period}`;
+    }
+    // Fallback (bør ikke skje)
+    return `unknown-${Math.random()}`;
+}
+
+// Definer ChartSeries type hvis den ikke er importert
+type ChartSeries = { name: string; data: number[] }[];
 
 // --- Fungerende createHistogramBins funksjon ---
 function createHistogramBins(values: number[] | undefined | null, numBins: number = 20): { categories: string[], data: number[] } {
@@ -127,18 +125,27 @@ watch(() => props.mcResults, (newResults) => {
       <table>
         <thead>
           <tr>
-            <th>Short</th>
-            <th>Long</th>
-            <th>PF</th>
+            <th>Strategy</th>
+            <th>Params</th>
+            <th>PF (Score)</th>
             <th>Trades</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
-
-          <tr v-for="(result, index) in topResults" :key="`${result.short}-${result.long}`">
-            <td>{{ result.short }}</td>
-            <td>{{ result.long }}</td>
+          <!-- Bruk v-if inne i løkken for å vise riktige params -->
+          <tr v-for="(result) in topResults" :key="generateResultKey(result)">
+            <td>{{ result.type }}</td>
+            <td>
+              <!-- Vis SMA Params -->
+              <span v-if="result.type === 'smaCross'">
+                {{ (result as SmaBestParams).short }} / {{ (result as SmaBestParams).long }}
+              </span>
+              <!-- Vis RSI Params -->
+              <span v-else-if="result.type === 'rsi'">
+                Period: {{ (result as RsiBestParams).period }}
+              </span>
+            </td>
             <td>{{ result.score.toFixed(3) }}</td>
             <td>{{ result.trades }}</td>
             <td>
@@ -153,23 +160,44 @@ watch(() => props.mcResults, (newResults) => {
     <div v-if="mcResults" class="result-block">
       <h4>Monte Carlo Validation Results</h4>
       <details open style="margin-bottom: 1rem;">
-      <summary>Context</summary> 
-      <table>
+        <summary>Context</summary>
+        <table>
           <tbody>
-              <!-- Parameters -->
-              <tr v-if="selectedParamsForMc"><td>Short SMA</td><td>{{ selectedParamsForMc.short }}</td></tr>
-              <tr v-if="selectedParamsForMc"><td>Long SMA</td><td>{{ selectedParamsForMc.long }}</td></tr>
-              <tr><td>Iterations</td><td>{{ mcResults.summaryStats?.numIterations ?? 'N/A' }}</td></tr>
-              <tr><td>Bars per Sim</td><td>{{ mcResults.summaryStats?.numBarsPerSim ?? 'N/A' }}</td></tr>
-              <!-- Data Info -->
-              <tr v-if="mcResults.dataInfo"><td>Symbol</td><td>{{ mcResults.dataInfo.symbol }}</td></tr>
-              <tr v-if="mcResults.dataInfo"><td>Timeframe</td><td>{{ mcResults.dataInfo.timeframe }}</td></tr>
-              <tr v-if="mcResults.dataInfo"><td>Historical Bars</td><td>{{ mcResults.dataInfo.count }}</td></tr>
-              <tr v-if="mcResults.dataInfo"><td>Data Start</td><td>{{ new Date(mcResults.dataInfo.startTime).toLocaleString() }}</td></tr>
-              <tr v-if="mcResults.dataInfo"><td>Data End</td><td>{{ new Date(mcResults.dataInfo.endTime).toLocaleString() }}</td></tr>
+            <!-- Parameters - Vis basert på type -->
+            <template v-if="selectedParamsForMc">
+                <!-- Alltid vis strategitype -->
+                <tr><td>Strategy</td><td>{{ selectedParamsForMc.type }}</td></tr>
+
+                <!-- Vis SMA Params hvis det er valgt -->
+                <template v-if="selectedParamsForMc.type === 'smaCross'">
+                    <tr><td>Short SMA</td><td>{{ (selectedParamsForMc as SmaBestParams).short }}</td></tr>
+                    <tr><td>Long SMA</td><td>{{ (selectedParamsForMc as SmaBestParams).long }}</td></tr>
+                </template>
+                <!-- Vis RSI Params hvis det er valgt -->
+                <template v-else-if="selectedParamsForMc.type === 'rsi'">
+                    <tr><td>RSI Period</td><td>{{ (selectedParamsForMc as RsiBestParams).period }}</td></tr>
+                    <!-- Kan legge til Buy/Sell Level hvis de lagres i RsiBestParams -->
+                    <!-- <tr><td>RSI Buy Level</td><td>...</td></tr> -->
+                    <!-- <tr><td>RSI Sell Level</td><td>...</td></tr> -->
+                </template>
+            </template>
+
+            <!-- MC Settings (som før) -->
+            <tr v-if="mcResults.summaryStats?.numIterations !== undefined"><td>Iterations</td><td>{{ mcResults.summaryStats.numIterations }}</td></tr>
+            <tr v-if="mcResults.summaryStats?.numBarsPerSim !== undefined"><td>Bars per Sim</td><td>{{ mcResults.summaryStats.numBarsPerSim }}</td></tr>
+
+            <!-- Data Info (som før) -->
+            <template v-if="mcResults.dataInfo">
+                <tr><td colspan="2" style="height: 10px; border: none; background: none;"></td></tr> <!-- Separator -->
+                <tr><td>Symbol</td><td>{{ mcResults.dataInfo.symbol }}</td></tr>
+                <tr><td>Timeframe</td><td>{{ mcResults.dataInfo.timeframe }}</td></tr>
+                <tr><td>Historical Bars</td><td>{{ mcResults.dataInfo.count }}</td></tr>
+                <tr><td>Data Start</td><td>{{ new Date(mcResults.dataInfo.startTime).toLocaleString() }}</td></tr>
+                <tr><td>Data End</td><td>{{ new Date(mcResults.dataInfo.endTime).toLocaleString() }}</td></tr>
+            </template>
           </tbody>
-      </table>
- </details>
+        </table>
+      </details>
 
       <!-- *** NY TABELL FOR SUMMARY STATS *** -->
       <div v-if="mcResults.summaryStats && Object.keys(mcResults.summaryStats).length > 2"> 

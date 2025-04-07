@@ -1,0 +1,44 @@
+name: Rust Build & Test
+
+on:
+  push:
+    branches: [ "master" ] # hovedbranch 
+  pull_request:
+    branches: [ "master" ] # hovedbranch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Build and Test Rust Code
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4 # Bruker siste versjon av checkout-aksjonen
+
+    - name: Install Rust stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    # Optional: Cache dependencies for faster builds
+    - name: Cache Cargo registry and index
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/           # Cache build artifacts
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Build Rust Project
+      # Kjør build for biblioteket (ikke nødvendigvis wasm-pack her for status)
+      # --locked sikrer at Cargo.lock brukes
+      run: cargo build --verbose --locked
+
+    - name: Run Rust tests
+      # Kjør testene definert i Rust-prosjektet
+      run: cargo test --verbose --locked

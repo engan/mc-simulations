@@ -1,6 +1,6 @@
 # Monte Carlo Trading Strategy Simulation Dashboard
 
-[![Rust Build](https://github.com/actions/workflows/rust.yml/badge.svg)](https://github.com/actions/workflows/rust.yml) <!-- Optional: Add CI badge if you set it up -->
+[![Rust Build & Test](https://github.com/engan/mc-simulations/actions/workflows/rust.yml/badge.svg)](https://github.com/engan/mc-simulations/actions/workflows/rust.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <!-- Optional: Choose and add a license -->
 
 A web-based dashboard for backtesting trading strategies and evaluating their robustness using Monte Carlo simulations. Built with Vue 3 (TypeScript) for the frontend and Rust compiled to WebAssembly (Wasm) for high-performance calculations.

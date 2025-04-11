@@ -127,7 +127,7 @@ export async function fetchBinanceKlines(
   const maxIterations = Math.ceil(totalLimit / MAX_KLINE_LIMIT_PER_REQUEST) + 5 // Sikkerhetsgrense
   let iterations = 0
 
-  console.log(`Starting fetch for ${totalLimit} total klines for ${symbol} ${interval}...`)
+  // console.log(`Starting fetch for ${totalLimit} total klines for ${symbol} ${interval}...`)
 
   while (fetchedCount < totalLimit && iterations < maxIterations) {
     iterations++
@@ -155,7 +155,7 @@ export async function fetchBinanceKlines(
       // Sett neste endTime til start-tiden for den eldste baren i denne chunken
       currentEndTime = chunk[0].timestamp
 
-      console.log(`Fetched chunk ${iterations}, total klines so far: ${fetchedCount}`)
+      // console.log(`Fetched chunk ${iterations}, total klines so far: ${fetchedCount}`)
 
       // Pause FØR neste request (hvis det trengs en til)
       if (fetchedCount < totalLimit) {

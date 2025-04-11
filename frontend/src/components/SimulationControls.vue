@@ -83,6 +83,7 @@ function startOptimization() {
   emit('mc-validation-complete', null);
   emit('update-progress', `Starter optimalisering for ${selectedStrategy.value}... Henter data...`);
 
+  // console.log("CONTROLS: Slippage value before opt:", slippageAmount.value, typeof slippageAmount.value);
   loadKlines(symbol.value, timeframe.value, dataLimitForFetch.value)
     .then(() => {
        // Datavalidering (kan gjøres mer robust basert på strategi)
@@ -104,7 +105,7 @@ function startOptimization() {
                 emit('update-progress', payload.message);
             } else if (type === 'result') {
                 // Mottar nå payload.topResults (en liste av TopResultItem)
-                console.log('Controls: Received result list from worker:', payload.topResults);
+                // console.log('Controls: Received result list from worker:', payload.topResults);
                 const resultsList = payload.topResults && payload.topResults.length > 0 ? payload.topResults : null;
                 handleOptimizationCompleteLocal(resultsList); // Kall med TopResultItem[]
             } else if (type === 'error') {
@@ -187,7 +188,7 @@ function triggerMcValidationStart() {
       }
   };
 
-  console.log("CONTROLS: Emitting 'start-mc-validation' with basic settings and costs:", payload);
+  // console.log("CONTROLS: Emitting 'start-mc-validation' with basic settings and costs:", payload);
   emit('start-mc-validation', payload); // Send payload med costs
 }
 

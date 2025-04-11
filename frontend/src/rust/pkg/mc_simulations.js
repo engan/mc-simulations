@@ -66,6 +66,16 @@ export function run_backtest_sma_cross_wasm(close_prices, short_period, long_per
     return BacktestResultWasm.__wrap(ret);
 }
 
+/**
+ * @param {bigint} left
+ * @param {bigint} right
+ * @returns {bigint}
+ */
+export function add(left, right) {
+    const ret = wasm.add(left, right);
+    return BigInt.asUintN(64, ret);
+}
+
 const BacktestResultWasmFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_backtestresultwasm_free(ptr >>> 0, 1));
@@ -192,9 +202,6 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbg_log_c222819a41e063d3 = function(arg0) {
-        console.log(arg0);
-    };
     imports.wbg.__wbindgen_init_externref_table = function() {
         const table = wasm.__wbindgen_export_0;
         const offset = table.grow(4);
@@ -204,10 +211,6 @@ function __wbg_get_imports() {
         table.set(offset + 2, true);
         table.set(offset + 3, false);
         ;
-    };
-    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
-        const ret = getStringFromWasm0(arg0, arg1);
-        return ret;
     };
     imports.wbg.__wbindgen_throw = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));

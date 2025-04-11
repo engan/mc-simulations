@@ -14,6 +14,7 @@ export const __wbg_get_backtestresultwasm_max_drawdown: (a: number) => number;
 export const __wbg_set_backtestresultwasm_max_drawdown: (a: number, b: number) => void;
 export const run_backtest_rsi_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
 export const run_backtest_sma_cross_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const add: (a: bigint, b: bigint) => bigint;
 export const __wbindgen_export_0: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_start: () => void;

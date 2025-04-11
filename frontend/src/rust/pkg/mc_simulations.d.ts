@@ -2,6 +2,7 @@
 /* eslint-disable */
 export function run_backtest_rsi_wasm(close_prices: Float64Array, period: number, buy_level: number, sell_level: number, commission_pct: number, slippage_amount: number): BacktestResultWasm;
 export function run_backtest_sma_cross_wasm(close_prices: Float64Array, short_period: number, long_period: number, commission_pct: number, slippage_amount: number): BacktestResultWasm;
+export function add(left: bigint, right: bigint): bigint;
 export class BacktestResultWasm {
   private constructor();
   free(): void;
@@ -29,6 +30,7 @@ export interface InitOutput {
   readonly __wbg_set_backtestresultwasm_max_drawdown: (a: number, b: number) => void;
   readonly run_backtest_rsi_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
   readonly run_backtest_sma_cross_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+  readonly add: (a: bigint, b: bigint) => bigint;
   readonly __wbindgen_export_0: WebAssembly.Table;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_start: () => void;

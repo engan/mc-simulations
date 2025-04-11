@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use web_sys::console; // <-- Importert for console::log_1
+// use web_sys::console; // <-- Importert for console::log_1
 
 // --- Enkel SMA-funksjon (Rust) ---
 fn calculate_sma_rust(prices: &[f64], period: usize) -> Vec<f64> {
@@ -89,8 +89,8 @@ pub fn run_backtest_rsi_wasm(
     slippage_amount: f64 // <-- NY
 ) -> BacktestResultWasm {
     // --- BRUK CONSOLE::LOG_1 ---
-    let log_msg = format!("[WASM RSI CONSOLE] ENTERED FUNCTION: period={}, buy={}, sell={}, commission={}, slippage={}, prices_len={}", period, buy_level, sell_level, commission_pct, slippage_amount, close_prices.len());
-    console::log_1(&JsValue::from_str(&log_msg));
+    // let log_msg = format!("[WASM RSI CONSOLE] ENTERED FUNCTION: period={}, buy={}, sell={}, commission={}, slippage={}, prices_len={}", period, buy_level, sell_level, commission_pct, slippage_amount, close_prices.len());
+    // console::log_1(&JsValue::from_str(&log_msg));
     // --- SLUTT ---
 
     const ERROR_PF_VALUE: f64 = -1.0;
@@ -203,8 +203,8 @@ pub fn run_backtest_sma_cross_wasm(
     slippage_amount: f64 // <-- NY
 ) -> BacktestResultWasm {
     // --- BRUK CONSOLE::LOG_1 ---
-    let log_msg = format!("[WASM SMA CONSOLE] ENTERED FUNCTION: short={}, long={}, commission={}, slippage={}, prices_len={}", short_period, long_period, commission_pct, slippage_amount, close_prices.len());
-    console::log_1(&JsValue::from_str(&log_msg));
+    // let log_msg = format!("[WASM SMA CONSOLE] ENTERED FUNCTION: short={}, long={}, commission={}, slippage={}, prices_len={}", short_period, long_period, commission_pct, slippage_amount, close_prices.len());
+    // console::log_1(&JsValue::from_str(&log_msg));
     // --- SLUTT ---
 
     const ERROR_PF_VALUE: f64 = -1.0;
@@ -333,6 +333,7 @@ pub fn run_backtest_sma_cross_wasm(
 }
 
 // --- add funksjon (uendret) ---
+#[wasm_bindgen]
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }

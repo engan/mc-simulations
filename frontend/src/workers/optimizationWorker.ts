@@ -49,7 +49,7 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
     // --- Wasm Init (som før) ---
     if (!wasmInitialized) {
       try {
-        console.log('Worker (TS): Initializing Wasm...')
+        // console.log('Worker (TS): Initializing Wasm...')
         await init()
         wasmInitialized = true
         console.log('Worker (TS): Wasm initialized.')

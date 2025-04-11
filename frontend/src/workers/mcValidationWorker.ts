@@ -79,7 +79,7 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
     // --- Initialiser Wasm ---
     if (!wasmInitializedMc) {
       try {
-        console.log('MC Worker (TS): Initializing Wasm...')
+        // console.log('MC Worker (TS): Initializing Wasm...')
         await init()
         wasmInitializedMc = true
         console.log('MC Worker (TS): Wasm initialized.')
@@ -103,7 +103,7 @@ self.onmessage = async (event: MessageEvent<{ type: string; payload: any }>) => 
     const { iterations: numIterations, barsPerSim: numBarsPerSim } = mcSettings
 
     console.log('MC Worker Received Strategy:', strategy)
-    console.log('MC Worker Received Params:', JSON.stringify(selectedStrategyParams))
+    // console.log('MC Worker Received Params:', JSON.stringify(selectedStrategyParams))
     console.log('MC Worker Historical Klines Length:', historicalKlines?.length)
 
     // --- Data Validering for Bootstrapping ---

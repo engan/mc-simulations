@@ -68,35 +68,169 @@ This process helps distinguish potentially robust strategies from those whose hi
 
 ```text
 mc-simulations/
-├── frontend/             # Vue.js Frontend Application
+├── frontend/             		        # Vue.js Frontend Application
 │   ├── public/
-│   ├── src/              # Frontend source code
-│   │   ├── components/   # UI Components
-│   │   ├── composables/  # Reusable Vue logic
-│   │   ├── services/     # API interaction (Binance)
-│   │   ├── types/        # Shared TypeScript types (simulation.ts)
-│   │   ├── views/        # Main application views
-│   │   ├── workers/      # Web Workers (Optimization, MC Validation)
-│   │   ├── rust/pkg/     # Generated Wasm package (output location)
-│   │   └── ...           # Other source files (main.ts, App.vue, etc.)
+│   ├── src/              		        # Frontend source code
+│   │   ├── assets/       		        # CSS files (base.css, main.css)
+│   │   ├── components/   		        # Vue UI Components
+│   │   │   ├── SimulationControls.vue
+│   │   │   └── SimulationResults.vue
+│   │   ├── composables/  		        # Reusable Vue logic
+│   │   │   └── useKlines.ts
+│   │   ├── router/  			        # Vue router (index.ts)
+│   │   ├── stores/       		        # Pinia state management (counter.ts)
+│   │   ├── rust/pkg/     		        # Generated Wasm package (output location)
+│   │   ├── services/     		        # API interaction
+│   │   │   └── binanceAPI.ts
+│   │   ├── types/        		        # Shared TypeScript types
+│   │   │   └── simulation.ts
+│   │   ├── views/        		        # Main application views
+│   │   │   └── SimulationView.vue
+│   │   ├── workers/      		        # Web Workers (Optimization, MC Validation)
+│   │   │   ├── optimizationWorker.ts
+│   │   │   └── mcValidationWorker.ts
+│   │   ├── App.vue       		        # Main Vue application component
+│   │   └── main.ts       		        # Vue app entry point
 │   ├── index.html
-│   ├── package.json      # Frontend package manifest
-│   ├── vite.config.ts    # Includes proxy for Binance API during dev
-│   └── ...               # Other config files (tsconfig, eslint, etc.)
+│   ├── package.json      		        # Frontend package manifest
+│   ├── vite.config.ts    		        # Vite config (incl. dev proxy)
+│   └── ...               		        # Other config files (tsconfig, eslint, etc.)
 │
-├── src/                  # Rust Library Source Code
-│   └── lib.rs            # Backtesting logic, Wasm bindings
+├── functions/            		        # Cloudflare Worker(s)
+│   └── binance-proxy.ts  		        # Proxy for Binance API CORS issue
+│
+├── src/                  		        # Rust Library Source Code
+│   └── lib.rs           		        # Backtesting logic, Wasm bindings
 │
 ├── .gitignore
-├── .vscode/              # VS Code settings (settings.json, extensions.json)
-├── Cargo.toml            # Rust dependencies and workspace info
+├── .vscode/              		        # VS Code settings (settings.json, extensions.json)
+├── Cargo.toml            		        # Rust dependencies and workspace info
 ├── Cargo.lock
-├── package.json          # Root package manifest (for workspace)
-├── pnpm-workspace.yaml   # Defines pnpm workspace (should be at root)
-└── README.md             # This file
+├── package.json          		        # Root package manifest (for workspace)
+├── pnpm-workspace.yaml   		        # Defines pnpm workspace (should be at root)
+└── README.md             		        # This file
 ```
 
 *(Note: The exact location of the `pkg` directory might depend on `wasm-pack` output configuration, often placed inside `frontend/src/rust/` or directly at the root/`frontend` level for easier import.)*
+
+## Data Flow and Component Interaction
+
+To better understand how data flows through the application and how the different components (Vue frontend, Web Workers, Rust/Wasm, API proxy) interact during the two main processes (Optimization and Monte Carlo Validation), the following sequence diagrams are included.
+
+**Important Notes on Viewing:**
+
+* **On GitHub:** These diagrams are rendered automatically directly on this page by GitHub. Depending on your screen size, **you might need to zoom in** your browser to see the details clearly.
+* **Locally (e.g., in VS Code):** For a good live preview while editing `README.md`, you can install a Markdown extension that supports Mermaid, such as **"Markdown Preview Mermaid Support"**. This is only for your local editor and is not required for the diagrams to be displayed on GitHub.
+
+### Participant Legend
+
+* **User**: End User interacting with the UI.
+* **SC**: `SimulationControls.vue` (Vue component for input).
+* **SV**: `SimulationView.vue` (Main Vue component, orchestrator).
+* **SR**: `SimulationResults.vue` (Vue component for displaying results).
+* **UK**: `useKlines.ts` (Vue Composable for fetching/managing K-line data).
+* **BA**: `binanceAPI.ts` (Service layer for calls to Binance API via proxy).
+* **Proxy**: Cloudflare Worker or Vite Dev Proxy (Handles CORS).
+* **Binance API**: External data source from Binance.
+* **OW**: `optimizationWorker.ts` (Web Worker for Optimization - Step 1).
+* **MCW**: `mcValidationWorker.ts` (Web Worker for Monte Carlo - Step 2).
+* **Wasm**: Compiled Rust/WebAssembly Module (Core calculations/backtesting).
+
+---
+
+### Flow 1: Optimization (Step 1)
+
+This diagram shows the process from the user initiating the optimization until the results are displayed.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SC as SimulationControls (Vue)
+    participant SV as SimulationView (Vue)
+    participant SR as SimulationResults (Vue)
+    participant UK as useKlines (Composable)
+    participant BA as binanceAPI (Service)
+    participant Proxy as Cloudflare Worker / Vite Proxy
+    participant Binance as Binance API
+    participant OW as Optimization Worker (TS)
+    participant Wasm as Rust/Wasm Module
+
+    User->>+SC: Set Opt. Params, Costs, Strategy
+    User->>+SC: Click "Start Optimization"
+    SC->>SV: emit('update-progress', "Starting...")
+    SC->>+UK: loadKlines(symbol, timeframe, limit)
+    UK->>+BA: fetchBinanceKlines(...)
+    BA->>+Proxy: GET /klines?... (or /binance-proxy/klines?)
+    Proxy->>+Binance: GET /api/v3/klines?...
+    Binance-->>-Proxy: Klines Data
+    Proxy-->>-BA: Klines Data (w/ CORS)
+    BA-->>-UK: Formatted Klines
+    UK-->>-SC: Klines ready (via reactivity)
+    SC->>SV: emit('update-progress', "Data fetched...")
+    SC->>+OW: postMessage('startOptimization', {klines, strategyInfo (w/ costs)})
+    OW->>OW: Start Grid Search Loop
+    loop Over Parameter Combinations
+        OW->>+Wasm: run_backtest_*(klines, params, costs)
+        Wasm-->>-OW: BacktestResultWasm (PF, trades)
+    end
+    OW->>OW: Find Top N Results
+    OW-->>-SC: postMessage('result', {topResults: TopResultItem[]})
+    SC->>SV: emit('optimization-complete', topResults)
+    SV->>SR: prop: topResults
+    SR->>User: Display Top Results in Table
+``` 
+
+---
+
+### Flow 2: Monte Carlo Validation (Step 2)
+
+This diagram shows the process after the user selects a parameter set from Step 1 and initiates the Monte Carlo validation.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SC as SimulationControls (Vue)
+    participant SV as SimulationView (Vue)
+    participant SR as SimulationResults (Vue)
+    participant UK as useKlines (Composable)
+    participant BA as binanceAPI (Service)
+    participant MCW as MC Validation Worker (TS)
+    participant Wasm as Rust/Wasm Module
+
+    Note over User, SR: Assumes Step 1 is complete and user selects a result.
+
+    User->>+SR: Click "Select" on a row
+    SR->>SV: emit('select-params-for-mc', selectedParams: TopResultItem)
+    SV->>SV: Store selectedParams
+    User->>+SC: Set MC Settings
+    User->>+SC: Click "Run MC Validation"
+    SC->>SV: emit('start-mc-validation', {mcSettings, dataSource, costs})
+    SV->>SV: Check if selectedParams exist
+    alt Data needs fetching/updating
+        SV->>+UK: loadKlines(...)
+        UK->>+BA: fetchBinanceKlines(...) // Via Proxy -> Binance (simplified)
+        BA-->>-UK: Formatted Klines
+        UK-->>SV: Klines ready
+    end
+    SV->>SV: Prepare payload for MC Worker
+    SV->>+MCW: postMessage('startMcValidation', {klines, selectedParams, mcSettings, costs})
+    MCW->>MCW: Calculate historical changes (for bootstrapping)
+    MCW->>MCW: Start Iteration Loop (MC)
+    loop Number of Iterations
+        MCW->>MCW: Generate Simulated Price Path
+        MCW->>+Wasm: run_backtest_*(simPath, selectedParams, costs)
+        Wasm-->>-MCW: BacktestResultWasm (Profit, Loss, MaxDD)
+        MCW->>MCW: Store P/L % and Max DD %
+    end
+    MCW->>MCW: Calculate Summary Statistics
+    MCW-->>-SV: postMessage('mcResult', {allPnLs_pct, allMaxDrawdowns, summaryStats})
+    SV->>SV: Add dataInfo (symbol, timeframe, etc.)
+    SV->>SR: prop: mcResults (updated)
+    SR->>SR: Update Context & Summary Table
+    SR->>SR: Generate Histograms (via ApexCharts)
+    SR->>User: Display MC Results & Charts
+
+```
 
 ## Getting Started 🚀
 

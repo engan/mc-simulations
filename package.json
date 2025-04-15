@@ -1,5 +1,6 @@
 {
 	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20250415.0",
 		"apexcharts": "^4.5.0",
 		"vue3-apexcharts": "^1.8.0",
 		"wrangler": "^4.10.0"

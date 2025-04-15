@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+      "target": "ESNext", // Eller det din kode bruker
+      "module": "ESNext",
+      "moduleResolution": "Bundler", // Eller NodeNext
+      "lib": ["ESNext"], // Ikke inkluder "DOM" her
+      "types": ["@cloudflare/workers-types"], // <-- VIKTIG
+      "esModuleInterop": true,
+      "forceConsistentCasingInFileNames": true,
+      "strict": true, // Anbefalt
+      "skipLibCheck": true // Kan være nyttig
+      // "outDir": "../dist-functions", // Evt. hvis du vil bygge separat
+      // "rootDir": ".",
+    },
+    "include": ["./**/*.ts"], // Inkluder filene i functions-mappen
+    "exclude": ["node_modules"]
+  }

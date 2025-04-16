@@ -6,7 +6,7 @@ import wasm from 'vite-plugin-wasm'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/mc-simulations/', // Appen ligger i denne undermappen
+  base: '/', // Appen ligger i denne undermappen
   plugins: [
     vue(),
     vueDevTools(),

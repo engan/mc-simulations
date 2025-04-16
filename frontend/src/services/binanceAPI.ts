@@ -27,7 +27,7 @@ type BinanceRawKline = [
 
 // Base-URL for Binance Spot API v3
 // const BINANCE_API_BASE_URL = 'https://api.binance.com/api/v3'
-const PROXY_API_BASE_URL = '/binance-api' // Pek på proxy-stien definert i vite.config.ts
+const PROXY_API_BASE_URL = '/binance-proxy' // Pek på proxy-stien definert i vite.config.ts
 const MAX_KLINE_LIMIT_PER_REQUEST = 1000 // Binances grense per kall
 const REQUEST_DELAY_MS = 300 // Pause mellom kall for å unngå rate limit (juster ved behov)
 

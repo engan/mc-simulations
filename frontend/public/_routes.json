@@ -1,1 +1,1 @@
-{ "version": 1, "exclude": ["/mc-simulations/assets/*", "/assets/*"], "include": ["/*"] }
+{ "version": 1, "exclude": ["/assets/*", "/favicon.ico", "/binance-proxy/*" ], "include": ["/*"] }

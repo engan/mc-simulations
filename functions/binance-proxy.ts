@@ -1,15 +1,10 @@
 // functions/binance-proxy.ts (Revidert for Pages Functions)
-import type { PagesFunction, EventContext } from '@cloudflare/workers-types' // Importer typer
+import type { PagesFunction } from '@cloudflare/workers-types'; // Importer typer
 
 // Definer funksjonen med PagesFunction signaturen
-export const onRequest: PagesFunction = async (context) => {
-  console.log("ULTRA MINIMAL TEXT PROXY FUNCTION INVOKED");
-
-  const headers = new Headers({
-    'Access-Control-Allow-Origin': '*' // Kun CORS
-  });
-  // Returner bare en enkel tekststreng
-  return new Response('Proxy Reached!', { headers: headers, status: 200 });
+export const onRequest: PagesFunction = (context) => {
+  // Ingen console.log her engang
+  return new Response('Minimal OK', { status: 200 });
 
   /*
   const { request } = context // Hent request fra context

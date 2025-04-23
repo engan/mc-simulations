@@ -3,27 +3,14 @@ import type { PagesFunction, EventContext } from '@cloudflare/workers-types' // 
 
 // Definer funksjonen med PagesFunction signaturen
 export const onRequest: PagesFunction = async (context) => {
-  // Logg rett ved start
-  console.log('PROXY FUNCTION INVOKED (Test Version)')
+  console.log("ULTRA MINIMAL TEXT PROXY FUNCTION INVOKED");
 
-  const dummyData = [
-    {
-      timestamp: Date.now(),
-      open: 1,
-      high: 2,
-      low: 0,
-      close: 1.5,
-      volume: 100,
-    },
-  ]
   const headers = new Headers({
-    'Content-Type': 'application/json', // Viktig MIME type
-    'Access-Control-Allow-Origin': '*', // Viktig CORS
-  })
-  return new Response(JSON.stringify(dummyData), {
-    headers: headers,
-    status: 200,
-  })
+    'Access-Control-Allow-Origin': '*' // Kun CORS
+  });
+  // Returner bare en enkel tekststreng
+  return new Response('Proxy Reached!', { headers: headers, status: 200 });
+
   /*
   const { request } = context // Hent request fra context
   const url = new URL(request.url)

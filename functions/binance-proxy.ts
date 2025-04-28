@@ -1,10 +1,22 @@
 // functions/binance-proxy.ts (Revidert for Pages Functions)
 import type { PagesFunction } from '@cloudflare/workers-types'; // Importer typer
 
-// Definer funksjonen med PagesFunction signaturen
-export const onRequest: PagesFunction = (context) => {
-  // Ingen console.log her engang
-  return new Response('Minimal OK', { status: 200 });
+export const onRequest: PagesFunction = async ({ request }) => {
+  const url = new URL(request.url);
+  // Ekstraher stien etter /binance-proxy
+  const path = url.pathname.replace(/^\/binance-proxy/, '/api/v3');
+  const binanceUrl = `https://api.binance.com${path}${url.search}`;
+
+  const res = await fetch(binanceUrl, { method: request.method, headers: request.headers });
+  const headers = new Headers(res.headers);
+  headers.set('Access-Control-Allow-Origin', '*');
+  if (request.method === 'OPTIONS')
+    return new Response(null, { headers });
+
+  return new Response(res.body, {
+    status: res.status,
+    headers,
+  });
 
   /*
   const { request } = context // Hent request fra context

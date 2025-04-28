@@ -27,10 +27,10 @@ const emit = defineEmits<{
 
 // --- Input fra brukeren ---
 const symbol = ref('SOLUSDT');
-const timeframe = ref('1h');
-const dataLimitForFetch = ref(1000);
-const mcIterations = ref(1000);
-const mcBarsPerSim = ref(500);
+const timeframe = ref('15m');
+const dataLimitForFetch = ref(10000);
+const mcIterations = ref(20000);
+const mcBarsPerSim = ref(2000);
 const optimizationResultsAvailable = ref(false);
 
 // --- NYTT: Valgt strategi ---

@@ -48,7 +48,8 @@ chieftec@Chieftec-PC:~/trading/mc-simulations$ tree -L 4 -I 'node_modules|target
 │   ├── vite.config.ts
 │   └── vitest.config.ts
 ├── functions
-│   ├── binance-proxy.ts
+│   ├── binance-proxy
+│   │   └── [[path]].ts
 │   └── tsconfig.json
 ├── notes.txt
 ├── package.json

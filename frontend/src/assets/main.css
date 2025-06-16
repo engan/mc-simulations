@@ -1,7 +1,8 @@
 @import './base.css';
 
 #app {
-  max-width: 1280px;
+  /* Fjern fast bredde, la den ta plassen den trenger */
+  /* max-width: 1280px; */ 
   margin: 0 auto;
   padding: 2rem;
   font-weight: normal;
@@ -21,6 +22,9 @@ a,
   }
 }
 
+/* FJERN ELLER KOMMENTER UT HELE DENNE MEDIA QUERY-BLOKKEN */
+/* Denne blokken forårsaker problemene på store skjermer */
+/*
 @media (min-width: 1024px) {
   body {
     display: flex;
@@ -33,3 +37,4 @@ a,
     padding: 0 2rem;
   }
 }
+*/

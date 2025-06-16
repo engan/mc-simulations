@@ -1,14 +1,13 @@
 import './assets/main.css'
-
 import { createApp } from 'vue'
-// import { createPinia } from 'pinia'  << -- Skal være med om pinia benyttes
-
 import App from './App.vue'
-// import router from './router'        << -- Skal være med om router benyttes
+import router from './router' 
+import VueApexCharts from "vue3-apexcharts";
 
 const app = createApp(App)
-// app.use(createPinia())               << -- Skal være med om pinia benyttes
-
-// app.use(router)                      << -- Skal være med om router benyttes
-
+app.use(VueApexCharts);
+app.use(router)
 app.mount('#app')
+
+// import { createPinia } from 'pinia'  << -- Om pinia benyttes
+// app.use(createPinia())               << -- Om pinia benyttes

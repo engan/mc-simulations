@@ -5,9 +5,9 @@ import { useKlines } from '../composables/useKlines';
 import type {
     TopResultItem,
     OptimizationStrategyInfo, 
-    SmaOptimizationParams, 
-    RsiOptimizationParams,
-    ParameterRange 
+    // SmaOptimizationParams, 
+    // RsiOptimizationParams,
+    // ParameterRange 
 } from '../types/simulation'; // <-- Importer fra ny fil
 
 // --- OPPDATER Lokal type for emit ---
